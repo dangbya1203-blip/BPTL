@@ -91,6 +91,20 @@ local ALIAS = {
     ["Colossuim"] = "Colossuim",
 }
 
+-- Đảo cô lập: không có neighbor → DieTP thẳng, bỏ qua Dijkstra
+local ISOLATED = {
+    ["Under Water Island"] = true,
+}
+
+-- Đảo cao hoặc đặc biệt: QuickTP bị server reject → luôn dùng DieTP
+local FORCE_DIE = {
+    ["Sky Island 1"]    = true,
+    ["Sky Island 3"]    = true,
+    ["Mini Sky Island"] = true,
+    ["Forgotten Island"]= true,
+    ["Hydra Island"]    = true,
+}
+
 local WORLDS = {
     World1 = {"WindMill","Marine","Middle Town","Jungle","Pirate Village","Desert",
               "Snow Island","MarineFord","Colosseum","Sky Island 1","Sky Island 2",
@@ -277,12 +291,11 @@ local function quickTP(pos)
     return accepted
 end
 
--- DieTP: set CFrame → die → đợi respawn → confirm vị trí
--- Chắc chắn 100%, dùng khi QuickTP fail hoặc ở đích cuối
+-- DieTP: set CFrame → die → đợi respawn → giữ CFrame liên tục sau respawn
+-- Dùng cho đảo cao (Sky Island) hoặc đích cuối
 local function dieTP(pos)
     local cf = CFrame.new(pos)
 
-    -- Set vị trí trước khi die
     local h, m = hrp()
     if not h then
         if not waitAlive() then return false end
@@ -290,7 +303,7 @@ local function dieTP(pos)
         if not h then return false end
     end
 
-    -- Giữ ngắn rồi die
+    -- Giữ vị trí rồi die
     local t0 = os.clock()
     while os.clock() - t0 < CFG.HOLD_TIME do
         if _stop then return false end
@@ -302,19 +315,41 @@ local function dieTP(pos)
 
     if _stop then return false end
 
-    -- Die
+    -- Die tại vị trí đó
     local _, hum = hrp()
     if hum then pcall(function() hum.Health = 0 end) end
 
     -- Đợi respawn
     if not waitAlive() then return false end
-    task.wait(0.15) -- buffer nhỏ sau respawn
 
-    -- Set lại vị trí sau respawn
+    -- Sau respawn: liên tục set CFrame trong 1.5s
+    -- Quan trọng với Sky Island vì game spawn dưới đất trước
+    local t1 = os.clock()
+    while os.clock() - t1 < 1.5 do
+        if _stop then break end
+        local nh = hrp()
+        if nh then setCF(nh, cf) end
+        task.wait(CFG.HOLD_STEP)
+    end
+
+    -- Verify cuối: có đến nơi chưa?
     local nh = hrp()
-    if nh then setCF(nh, cf) end
+    if not nh then return false end
+    local arrived = d(nh.Position, pos) <= CFG.VERIFY_DIST
 
-    return true
+    -- Nếu vẫn chưa đến (Sky Island quá khó) → thử thêm 1 lần nữa
+    if not arrived then
+        task.wait(0.2)
+        local nh2 = hrp()
+        if nh2 then
+            setCF(nh2, cf)
+            task.wait(0.5)
+            local nh3 = hrp()
+            arrived = nh3 and d(nh3.Position, pos) <= CFG.VERIFY_DIST
+        end
+    end
+
+    return arrived ~= false
 end
 
 -- ============================================================
@@ -330,21 +365,16 @@ local function moveToIsland(name, isLast)
         return true
     end
 
-    if isLast then
-        -- Đích cuối → DieTP luôn để chắc chắn
+    -- Đích cuối, hoặc đảo cao/đặc biệt → DieTP luôn
+    if isLast or FORCE_DIE[name] then
         return dieTP(pos)
-    else
-        -- Trung gian → thử QuickTP
-        local ok = quickTP(pos)
-        if _stop then return false end
-
-        if ok then
-            return true
-        else
-            -- Server reject → fallback DieTP
-            return dieTP(pos)
-        end
     end
+
+    -- Trung gian → thử QuickTP, fallback DieTP
+    local ok = quickTP(pos)
+    if _stop then return false end
+    if ok then return true end
+    return dieTP(pos)
 end
 
 -- ============================================================
@@ -359,7 +389,6 @@ function PMT_FastHopTo(target)
         return false
     end
 
-    -- Đảm bảo alive trước khi bắt đầu
     if not hrp() then
         if not waitAlive() then return false end
     end
@@ -367,23 +396,31 @@ function PMT_FastHopTo(target)
     local h = hrp()
     if not h then return false end
 
-    -- Tìm đường
+    _running, _stop = true, false
+    local success = false
+
+    -- Đảo cô lập → DieTP thẳng, không cần Dijkstra
+    if ISOLATED[target] then
+        success = dieTP(ISLANDS[target].Position)
+        _running = false
+        return success
+    end
+
+    -- Tìm đường bình thường
     local start = nearest(h.Position)
     local path  = findPath(start, target)
 
     if not path then
         warn("[PMT] Không tìm được đường đến: " .. target)
+        _running = false
         return false
     end
 
-    -- Bắt đầu
-    _running, _stop = true, false
+    success = true
     local total = #path
-    local success = true
 
     for i, name in ipairs(path) do
         if _stop then success = false; break end
-
         local ok = moveToIsland(name, i == total)
         if not ok or _stop then
             success = false
