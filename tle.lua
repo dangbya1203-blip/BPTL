@@ -1,320 +1,367 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 
-getgenv().PMT_MAX_STEP_DIST = getgenv().PMT_MAX_STEP_DIST or 9000
-getgenv().PMT_HOLD_TIME = getgenv().PMT_HOLD_TIME or 2
-getgenv().PMT_HOLD_STEP = getgenv().PMT_HOLD_STEP or 0.03
-getgenv().PMT_RESPAWN_TIMEOUT = getgenv().PMT_RESPAWN_TIMEOUT or 7
-getgenv().PMT_SKIP_IF_NEAR = getgenv().PMT_SKIP_IF_NEAR or 2000
+-- ============================================================
+-- Cấu hình (có thể override từ ngoài)
+-- ============================================================
+getgenv().PMT_MAX_STEP_DIST  = getgenv().PMT_MAX_STEP_DIST  or 9000
+getgenv().PMT_HOLD_TIME      = getgenv().PMT_HOLD_TIME      or 1.2  -- giảm từ 2s → 1.2s
+getgenv().PMT_HOLD_STEP      = getgenv().PMT_HOLD_STEP      or 0.03
+getgenv().PMT_RESPAWN_TIMEOUT= getgenv().PMT_RESPAWN_TIMEOUT or 7
+getgenv().PMT_SKIP_IF_NEAR   = getgenv().PMT_SKIP_IF_NEAR   or 800  -- giảm từ 2000 → 800
 
+-- ============================================================
+-- Dữ liệu đảo
+-- ============================================================
 local IslandCF = {
-	["WindMill"] = CFrame.new(979.799, 16.516, 1429.047),
-	["Marine"] = CFrame.new(-2566.43, 6.856, 2045.256),
-	["Middle Town"] = CFrame.new(-690.331, 15.094, 1582.238),
-	["Jungle"] = CFrame.new(-1612.796, 36.852, 149.128),
-	["Pirate Village"] = CFrame.new(-1181.309, 4.751, 3803.546),
-	["Desert"] = CFrame.new(944.158, 20.92, 4373.3),
-	["Snow Island"] = CFrame.new(1347.807, 104.668, -1319.737),
-	["MarineFord"] = CFrame.new(-4914.821, 50.964, 4281.028),
-	["Colosseum"] = CFrame.new(-1427.62, 7.288, -2792.772),
-	["Sky Island 1"] = CFrame.new(-4869.103, 733.461, -2667.018),
-	["Sky Island 2"] = CFrame.new(-11.311, 29.277, 2771.522),
-	["Sky Island 3"] = CFrame.new(-483.734, 332.038, 595.327),
-	["Prison"] = CFrame.new(4875.33, 5.652, 734.85),
-	["Magma Village"] = CFrame.new(-5247.716, 12.884, 8504.969),
-	["Under Water Island"] = CFrame.new(61163.852, 11.68, 1819.784),
-	["Fountain City"] = CFrame.new(5127.128, 59.501, 4105.446),
+    ["WindMill"]          = CFrame.new(979.799,    16.516,   1429.047),
+    ["Marine"]            = CFrame.new(-2566.43,    6.856,   2045.256),
+    ["Middle Town"]       = CFrame.new(-690.331,   15.094,   1582.238),
+    ["Jungle"]            = CFrame.new(-1612.796,  36.852,    149.128),
+    ["Pirate Village"]    = CFrame.new(-1181.309,   4.751,   3803.546),
+    ["Desert"]            = CFrame.new(944.158,    20.92,    4373.3),
+    ["Snow Island"]       = CFrame.new(1347.807,  104.668,  -1319.737),
+    ["MarineFord"]        = CFrame.new(-4914.821,  50.964,   4281.028),
+    ["Colosseum"]         = CFrame.new(-1427.62,    7.288,  -2792.772),
+    ["Sky Island 1"]      = CFrame.new(-4869.103, 733.461,  -2667.018),
+    ["Sky Island 2"]      = CFrame.new(-11.311,    29.277,   2771.522),
+    ["Sky Island 3"]      = CFrame.new(-483.734,  332.038,    595.327),
+    ["Prison"]            = CFrame.new(4875.33,     5.652,    734.85),
+    ["Magma Village"]     = CFrame.new(-5247.716,  12.884,   8504.969),
+    ["Under Water Island"]= CFrame.new(61163.852,  11.68,    1819.784),
+    ["Fountain City"]     = CFrame.new(5127.128,   59.501,   4105.446),
 
-	["The Cafe"] = CFrame.new(-380.479, 77.22, 255.826),
-	["Frist Spot"] = CFrame.new(-9515.372, 164.006, 5786.061),
-	["Dark Area"] = CFrame.new(3780.03, 22.652, -3498.586),
-	["Flamingo Mansion"] = CFrame.new(-3032.764, 317.897, -10075.373),
-	["Flamingo Room"] = CFrame.new(2284.414, 15.152, 875.725),
-	["Green Zone"] = CFrame.new(-2448.53, 73.016, -3210.631),
-	["Factory"] = CFrame.new(424.127, 211.162, -427.54),
-	["Colossuim"] = CFrame.new(-1503.622, 219.796, 1369.31),
-	["Zombie Island"] = CFrame.new(-5622.033, 492.196, -781.786),
-	["Two Snow Mountain"] = CFrame.new(753.143, 408.236, -5274.615),
-	["Punk Hazard"] = CFrame.new(-6127.654, 15.952, -5040.286),
-	["Cursed Ship"] = CFrame.new(923.402, 125.057, 32885.875),
-	["Ice Castle"] = CFrame.new(6148.412, 294.387, -6741.117),
-	["Forgotten Island"] = CFrame.new(2681.274, 1682.809, -7190.985),
+    ["The Cafe"]          = CFrame.new(-380.479,   77.22,     255.826),
+    ["Frist Spot"]        = CFrame.new(-9515.372, 164.006,   5786.061),
+    ["Dark Area"]         = CFrame.new(3780.03,    22.652,  -3498.586),
+    ["Flamingo Mansion"]  = CFrame.new(-3032.764, 317.897, -10075.373),
+    ["Flamingo Room"]     = CFrame.new(2284.414,   15.152,    875.725),
+    ["Green Zone"]        = CFrame.new(-2448.53,   73.016,  -3210.631),
+    ["Factory"]           = CFrame.new(424.127,   211.162,   -427.54),
+    ["Colossuim"]         = CFrame.new(-1503.622, 219.796,   1369.31),
+    ["Zombie Island"]     = CFrame.new(-5622.033, 492.196,   -781.786),
+    ["Two Snow Mountain"] = CFrame.new(753.143,   408.236,  -5274.615),
+    ["Punk Hazard"]       = CFrame.new(-6127.654,  15.952,  -5040.286),
+    ["Cursed Ship"]       = CFrame.new(923.402,   125.057,  32885.875),
+    ["Ice Castle"]        = CFrame.new(6148.412,  294.387,  -6741.117),
+    ["Forgotten Island"]  = CFrame.new(2681.274,  1682.809, -7190.985),
 
-	["Sea castle"] = CFrame.new(-5496.452, 313.809, -2857.703),
-	["Mini Sky Island"] = CFrame.new(-288.741, 49326.316, -35248.594),
-	["Great Tree"] = CFrame.new(2681.274, 1682.809, -7190.985),
-	["Port Town"] = CFrame.new(-226.751, 20.603, 5538.34),
-	["Hydra Island"] = CFrame.new(5291.249, 1005.443, 393.762),
-	["Mansion"] = CFrame.new(-12633.672, 459.521, -7425.463),
-	["Haunted Castle"] = CFrame.new(-9366.803, 141.366, 5443.941),
-	["Ice Cream Island"] = CFrame.new(-902.568, 79.932, -10988.848),
-	["Peanut Island"] = CFrame.new(-2062.748, 50.474, -10232.568),
-	["Cake Island"] = CFrame.new(-1884.775, 19.328, -11666.897),
-	["Cocoa Island"] = CFrame.new(87.943, 73.555, -12319.465),
-	["Candy Island"] = CFrame.new(-1014.424, 149.111, -14555.963),
-	["Tiki Outpost"] = CFrame.new(-16218.683, 9.086, 445.618),
-	["Dragon Dojo"] = CFrame.new(5743.319, 1206.91, 936.011),
+    ["Sea castle"]        = CFrame.new(-5496.452, 313.809,  -2857.703),
+    ["Mini Sky Island"]   = CFrame.new(-288.741, 49326.316,-35248.594),
+    ["Great Tree"]        = CFrame.new(2681.274,  1682.809, -7190.985),
+    ["Port Town"]         = CFrame.new(-226.751,   20.603,   5538.34),
+    ["Hydra Island"]      = CFrame.new(5291.249,  1005.443,   393.762),
+    ["Mansion"]           = CFrame.new(-12633.672, 459.521, -7425.463),
+    ["Haunted Castle"]    = CFrame.new(-9366.803, 141.366,   5443.941),
+    ["Ice Cream Island"]  = CFrame.new(-902.568,   79.932, -10988.848),
+    ["Peanut Island"]     = CFrame.new(-2062.748,  50.474, -10232.568),
+    ["Cake Island"]       = CFrame.new(-1884.775,  19.328, -11666.897),
+    ["Cocoa Island"]      = CFrame.new(87.943,     73.555, -12319.465),
+    ["Candy Island"]      = CFrame.new(-1014.424, 149.111, -14555.963),
+    ["Tiki Outpost"]      = CFrame.new(-16218.683,  9.086,    445.618),
+    ["Dragon Dojo"]       = CFrame.new(5743.319,  1206.91,    936.011),
 }
 
 local Alias = {
-	["MiniSky"] = "Mini Sky Island",
-	["Colosseum"] = "Colosseum",
-	["Colossuim"] = "Colossuim",
+    ["MiniSky"]    = "Mini Sky Island",
+    ["Colosseum"]  = "Colosseum",
+    ["Colossuim"]  = "Colossuim",
 }
 
 local WorldIslands = {
-	World1 = {"WindMill","Marine","Middle Town","Jungle","Pirate Village","Desert","Snow Island","MarineFord","Colosseum","Sky Island 1","Sky Island 2","Sky Island 3","Prison","Magma Village","Under Water Island","Fountain City"},
-	World2 = {"The Cafe","Frist Spot","Dark Area","Flamingo Mansion","Flamingo Room","Green Zone","Factory","Colossuim","Zombie Island","Two Snow Mountain","Punk Hazard","Cursed Ship","Ice Castle","Forgotten Island"},
-	World3 = {"Sea castle","Mini Sky Island","Great Tree","Port Town","Hydra Island","Mansion","Haunted Castle","Ice Cream Island","Peanut Island","Cake Island","Cocoa Island","Candy Island","Tiki Outpost","Dragon Dojo"},
+    World1 = {"WindMill","Marine","Middle Town","Jungle","Pirate Village","Desert","Snow Island","MarineFord","Colosseum","Sky Island 1","Sky Island 2","Sky Island 3","Prison","Magma Village","Under Water Island","Fountain City"},
+    World2 = {"The Cafe","Frist Spot","Dark Area","Flamingo Mansion","Flamingo Room","Green Zone","Factory","Colossuim","Zombie Island","Two Snow Mountain","Punk Hazard","Cursed Ship","Ice Castle","Forgotten Island"},
+    World3 = {"Sea castle","Mini Sky Island","Great Tree","Port Town","Hydra Island","Mansion","Haunted Castle","Ice Cream Island","Peanut Island","Cake Island","Cocoa Island","Candy Island","Tiki Outpost","Dragon Dojo"},
 }
 
+-- ============================================================
+-- Cache — build 1 lần, dùng nhiều lần
+-- ============================================================
+local _cachedWorldKey = nil
+local _cachedNodes    = nil
+local _cachedAdj      = nil  -- pre-built graph cho Dijkstra
+
 local function getWorldKey()
-	if _G.CurrentWorld == 2 then return "World2" end
-	if _G.CurrentWorld == 3 then return "World3" end
-	return "World1"
+    if _cachedWorldKey then return _cachedWorldKey end
+    if _G.CurrentWorld == 2 then _cachedWorldKey = "World2"
+    elseif _G.CurrentWorld == 3 then _cachedWorldKey = "World3"
+    else _cachedWorldKey = "World1" end
+    return _cachedWorldKey
 end
 
+local function getNodes()
+    if _cachedNodes then return _cachedNodes end
+    local wk   = getWorldKey()
+    local list = WorldIslands[wk] or {}
+    local nodes = {}
+    for _, n in ipairs(list) do
+        if IslandCF[n] then nodes[#nodes+1] = n end
+    end
+    _cachedNodes = nodes
+    return nodes
+end
+
+-- Pre-build adjacency graph — chỉ chạy 1 lần
+local function getAdj()
+    if _cachedAdj then return _cachedAdj end
+    local nodes = getNodes()
+    local maxStep = getgenv().PMT_MAX_STEP_DIST
+    local adj = {}
+    for _, a in ipairs(nodes) do adj[a] = {} end
+    for i = 1, #nodes do
+        local ai = nodes[i]
+        local ap = IslandCF[ai].Position
+        for j = i+1, #nodes do
+            local bj = nodes[j]
+            local bp = IslandCF[bj].Position
+            local d  = (ap - bp).Magnitude
+            if d <= maxStep then
+                adj[ai][bj] = d
+                adj[bj][ai] = d
+            end
+        end
+    end
+    _cachedAdj = adj
+    return adj
+end
+
+-- Reset cache khi đổi world
+function PMT_ResetCache()
+    _cachedWorldKey = nil
+    _cachedNodes    = nil
+    _cachedAdj      = nil
+end
+
+-- ============================================================
+-- Helpers
+-- ============================================================
 local function normName(name)
-	if type(name) ~= "string" then return nil end
-	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	if Alias[name] then name = Alias[name] end
-	return name
+    if type(name) ~= "string" then return nil end
+    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+    return Alias[name] or name
 end
 
 local function dist(a, b) return (a - b).Magnitude end
 
 local function GetChar()
-	local c = LP.Character or LP.CharacterAdded:Wait()
-	local hrp = c:WaitForChild("HumanoidRootPart", 10)
-	local hum = c:FindFirstChildOfClass("Humanoid")
-	if not (hrp and hum) then return end
-	return c, hrp, hum
+    local c   = LP.Character or LP.CharacterAdded:Wait()
+    local hrp = c:WaitForChild("HumanoidRootPart", 10)
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    if not (hrp and hum) then return end
+    return c, hrp, hum
 end
 
-local function buildNodes()
-	local wk = getWorldKey()
-	local list = WorldIslands[wk] or {}
-	local nodes = {}
-	for _, n in ipairs(list) do
-		if IslandCF[n] then nodes[#nodes+1] = n end
-	end
-	return nodes
+local function nearestIsland(pos)
+    local nodes = getNodes()
+    local best, bestD
+    for _, n in ipairs(nodes) do
+        local d = dist(pos, IslandCF[n].Position)
+        if not bestD or d < bestD then bestD, best = d, n end
+    end
+    return best
 end
 
-Location = Location or {}
-do
-	table.clear(Location)
-	for _, n in ipairs(buildNodes()) do
-		Location[#Location+1] = n
-	end
+-- ============================================================
+-- Dijkstra — dùng pre-built graph
+-- ============================================================
+local function dijkstra(startName, goalName)
+    local nodes  = getNodes()
+    local adj    = getAdj()
+
+    local distMap, prev, used = {}, {}, {}
+    for _, n in ipairs(nodes) do distMap[n] = math.huge end
+    distMap[startName] = 0
+
+    while true do
+        local u, best = nil, math.huge
+        for _, n in ipairs(nodes) do
+            if not used[n] and distMap[n] < best then
+                best, u = distMap[n], n
+            end
+        end
+        if not u or u == goalName then break end
+        used[u] = true
+        for v, w in pairs(adj[u]) do
+            if not used[v] then
+                local nd = distMap[u] + w
+                if nd < distMap[v] then
+                    distMap[v], prev[v] = nd, u
+                end
+            end
+        end
+    end
+
+    if distMap[goalName] == math.huge then return nil end
+    local path, cur = {}, goalName
+    while cur do
+        table.insert(path, 1, cur)
+        cur = prev[cur]
+    end
+    return path
 end
 
-local function nearestIsland(pos, nodes)
-	local best, bestD
-	for _, n in ipairs(nodes) do
-		local d = dist(pos, IslandCF[n].Position)
-		if not bestD or d < bestD then bestD, best = d, n end
-	end
-	return best, bestD or math.huge
-end
-
-local function dijkstra(nodes, startName, goalName, maxStep)
-	local adj = {}
-	for _, a in ipairs(nodes) do adj[a] = {} end
-
-	for i = 1, #nodes do
-		local ai = nodes[i]
-		local ap = IslandCF[ai].Position
-		for j = i+1, #nodes do
-			local bj = nodes[j]
-			local bp = IslandCF[bj].Position
-			local d = dist(ap, bp)
-			if d <= maxStep then
-				adj[ai][bj] = d
-				adj[bj][ai] = d
-			end
-		end
-	end
-
-	local distMap, prev, used = {}, {}, {}
-	for _, n in ipairs(nodes) do distMap[n] = math.huge end
-	distMap[startName] = 0
-
-	while true do
-		local u, best = nil, math.huge
-		for _, n in ipairs(nodes) do
-			if not used[n] and distMap[n] < best then best, u = distMap[n], n end
-		end
-		if not u or u == goalName then break end
-		used[u] = true
-		for v, w in pairs(adj[u]) do
-			if not used[v] then
-				local nd = distMap[u] + w
-				if nd < distMap[v] then distMap[v], prev[v] = nd, u end
-			end
-		end
-	end
-
-	if distMap[goalName] == math.huge then return nil end
-	local path, cur = {}, goalName
-	while cur do
-		table.insert(path, 1, cur)
-		cur = prev[cur]
-	end
-	return path
-end
-
+-- ============================================================
+-- Core teleport logic
+-- ============================================================
 local _STOP, _RUN = false, false
 
 local function HoldTPAndReset(pos)
-	local c, hrp, hum = GetChar()
-	if not c then return false end
-	local cf = CFrame.new(pos)
+    local c, hrp, hum = GetChar()
+    if not c then return false end
+    local cf = CFrame.new(pos)
 
-	pcall(function()
-		hrp.CFrame = cf
-		hrp.AssemblyLinearVelocity = Vector3.zero
-		hrp.AssemblyAngularVelocity = Vector3.zero
-	end)
+    pcall(function()
+        hrp.CFrame = cf
+        hrp.AssemblyLinearVelocity  = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
 
-	local t0 = os.clock()
-	while os.clock() - t0 < getgenv().PMT_HOLD_TIME do
-		if _STOP then break end
-		if not (hrp and hrp.Parent and hum and hum.Parent and hum.Health > 0) then break end
-		pcall(function()
-			hrp.CFrame = cf
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-		end)
-		task.wait(getgenv().PMT_HOLD_STEP)
-	end
+    local t0 = os.clock()
+    while os.clock() - t0 < getgenv().PMT_HOLD_TIME do
+        if _STOP then break end
+        if not (hrp and hrp.Parent and hum and hum.Parent and hum.Health > 0) then break end
+        pcall(function()
+            hrp.CFrame = cf
+            hrp.AssemblyLinearVelocity  = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end)
+        task.wait(getgenv().PMT_HOLD_STEP)
+    end
 
-	if _STOP then return false end
-	pcall(function() hum.Health = 0 end)
-	return true
+    if _STOP then return false end
+    pcall(function() hum.Health = 0 end)
+    return true
 end
 
 local function WaitRespawn()
-	local t0 = os.clock()
-	while os.clock() - t0 < getgenv().PMT_RESPAWN_TIMEOUT do
-		if _STOP then return false end
-		local c = LP.Character
-		local hrp = c and c:FindFirstChild("HumanoidRootPart")
-		local hum = c and c:FindFirstChildOfClass("Humanoid")
-		if hrp and hum and hum.Health > 0 then return true end
-		task.wait(0.15)
-	end
-	return false
+    local t0 = os.clock()
+    while os.clock() - t0 < getgenv().PMT_RESPAWN_TIMEOUT do
+        if _STOP then return false end
+        local c   = LP.Character
+        local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hrp and hum and hum.Health > 0 then return true end
+        task.wait(0.15)
+    end
+    return false
 end
 
+-- ============================================================
+-- Public API
+-- ============================================================
 function PMT_FastHopTo(targetName)
-	targetName = normName(targetName)
-	if not (targetName and IslandCF[targetName]) then return false end
+    targetName = normName(targetName)
+    if not (targetName and IslandCF[targetName]) then
+        warn("PMT: Đảo không hợp lệ: " .. tostring(targetName))
+        return false
+    end
 
-	local nodes = buildNodes()
-	if #nodes == 0 then return false end
+    local nodes = getNodes()
+    if #nodes == 0 then return false end
 
-	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-	if not hrp then
-		if not WaitRespawn() then return false end
-		hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-	end
-	if not hrp then return false end
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        if not WaitRespawn() then return false end
+        hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    end
+    if not hrp then return false end
 
-	local startIsland = nearestIsland(hrp.Position, nodes)
-	local path = dijkstra(nodes, startIsland, targetName, getgenv().PMT_MAX_STEP_DIST)
-	if not path then return false end
+    local startIsland = nearestIsland(hrp.Position)
+    local path = dijkstra(startIsland, targetName)
+    if not path then
+        warn("PMT: Không tìm được đường đến " .. targetName)
+        return false
+    end
 
-	_RUN, _STOP = true, false
+    _RUN, _STOP = true, false
+    local totalSteps = #path
+    local currentStep = 0
 
-	for _, name in ipairs(path) do
-		if _STOP then break end
-		local pos = IslandCF[name].Position
-		local ch = LP.Character
-		local hrp2 = ch and ch:FindFirstChild("HumanoidRootPart")
-		if hrp2 and dist(hrp2.Position, pos) <= getgenv().PMT_SKIP_IF_NEAR then
-			task.wait(0.1)
-		else
-			if not HoldTPAndReset(pos) or _STOP then break end
-			if not WaitRespawn() or _STOP then break end
-		end
-		task.wait(0.2)
-	end
+    for _, name in ipairs(path) do
+        if _STOP then break end
+        currentStep += 1
+        local pos  = IslandCF[name].Position
+        local ch   = LP.Character
+        local hrp2 = ch and ch:FindFirstChild("HumanoidRootPart")
 
-	_RUN = false
-	return not _STOP
+        -- Bỏ qua nếu đã đủ gần
+        if hrp2 and dist(hrp2.Position, pos) <= getgenv().PMT_SKIP_IF_NEAR then
+            task.wait(0.05)
+        else
+            if not HoldTPAndReset(pos) or _STOP then break end
+            if not WaitRespawn() or _STOP then break end
+        end
+        task.wait(0.1) -- giảm từ 0.2 → 0.1
+    end
+
+    _RUN = false
+    return not _STOP
 end
 
 function PMT_StopFastHop()
-	_STOP = true
+    _STOP = true
 end
 
 function PMT_IsFastHopRunning()
-	return _RUN
-end
-
-function BuildIslandOptions()
-	local wk = getWorldKey()
-	local list = WorldIslands[wk] or {}
-	local out, seen = {}, {}
-	for _, name in ipairs(list) do
-		if Alias and Alias[name] then name = Alias[name] end
-		if IslandCF[name] and not seen[name] then
-			seen[name] = true
-			out[#out+1] = name
-		end
-	end
-	table.sort(out)
-	return out
+    return _RUN
 end
 
 function PMT_IsNearIsland(name, range)
-	local cf = IslandCF and IslandCF[name]
-	if not cf then return true end
-	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-	if not hrp then return false end
-	return (hrp.Position - cf.Position).Magnitude <= (range or 2500)
+    local cf = IslandCF[name]
+    if not cf then return true end
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return (hrp.Position - cf.Position).Magnitude <= (range or 2500)
 end
 
 function PMT_EnsureIsland(name, range, tries)
-	range = range or 3000
-	tries = tries or 3
-
-	if PMT_IsNearIsland(name, range) then return true end
-
-	for _ = 1, tries do
-		if not (_G.AutoFarm_Bone and _G.Bypass) then
-			return PMT_IsNearIsland(name, range)
-		end
-
-		if typeof(PMT_StopFastHop) == "function" then PMT_StopFastHop() end
-
-		if _G.Bypass and typeof(PMT_FastHopTo) == "function" then
-			pcall(function()
-				PMT_FastHopTo(name)
-			end)
-		else
-			local cf = IslandCF and IslandCF[name]
-			if cf and typeof(_tp) == "function" then
-				pcall(function() _tp(cf) end)
-			end
-		end
-
-		task.wait(0.25)
-		if PMT_IsNearIsland(name, range) then return true end
-	end
-
-	return PMT_IsNearIsland(name, range)
+    range = range or 3000
+    tries = tries or 3
+    if PMT_IsNearIsland(name, range) then return true end
+    for _ = 1, tries do
+        if not (_G.AutoFarm_Bone and _G.Bypass) then
+            return PMT_IsNearIsland(name, range)
+        end
+        PMT_StopFastHop()
+        if _G.Bypass then
+            pcall(function() PMT_FastHopTo(name) end)
+        else
+            local cf = IslandCF[name]
+            if cf and typeof(_tp) == "function" then
+                pcall(function() _tp(cf) end)
+            end
+        end
+        task.wait(0.25)
+        if PMT_IsNearIsland(name, range) then return true end
+    end
+    return PMT_IsNearIsland(name, range)
 end
 
+function BuildIslandOptions()
+    local wk   = getWorldKey()
+    local list = WorldIslands[wk] or {}
+    local out, seen = {}, {}
+    for _, name in ipairs(list) do
+        local resolved = Alias[name] or name
+        if IslandCF[resolved] and not seen[resolved] then
+            seen[resolved] = true
+            out[#out+1] = resolved
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+-- Global loop trigger
 task.spawn(function()
-	while task.wait(0.25) do
-		if _G.Tpfast and not _RUN then
-			local target = _G.Islandtp
-			if target and target ~= "" then
-				_STOP = false
-				PMT_FastHopTo(target)
-			end
-		end
-	end
+    while task.wait(0.25) do
+        if _G.Tpfast and not _RUN then
+            local target = _G.Islandtp
+            if target and target ~= "" then
+                _STOP = false
+                PMT_FastHopTo(target)
+                _G.Tpfast = false
+            end
+        end
+    end
 end)
