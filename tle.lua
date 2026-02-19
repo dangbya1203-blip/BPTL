@@ -323,7 +323,8 @@ local function PMT_EnsureIsland(name, range, tries)
 	end
 
 	return PMT_IsNearIsland(name, range)
-enden
+end
+end
 				pcall(function() _tp(cf) end)
 			end
 		end
