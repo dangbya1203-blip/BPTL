@@ -69,9 +69,8 @@ local WorldIslands = {
 }
 
 local function getWorldKey()
-	if World1 then return "World1" end
-	if World2 then return "World2" end
-	if World3 then return "World3" end
+	if _G.CurrentWorld == 2 then return "World2" end
+	if _G.CurrentWorld == 3 then return "World3" end
 	return "World1"
 end
 
@@ -123,10 +122,10 @@ local function dijkstra(nodes, startName, goalName, maxStep)
 	local adj = {}
 	for _, a in ipairs(nodes) do adj[a] = {} end
 
-	for i=1,#nodes do
+	for i = 1, #nodes do
 		local ai = nodes[i]
 		local ap = IslandCF[ai].Position
-		for j=i+1,#nodes do
+		for j = i+1, #nodes do
 			local bj = nodes[j]
 			local bp = IslandCF[bj].Position
 			local d = dist(ap, bp)
@@ -254,25 +253,7 @@ function PMT_IsFastHopRunning()
 	return _RUN
 end
 
-task.spawn(function()
-	while task.wait(0.25) do
-		if _G.Tpfast and not _RUN then
-			local target = _G.Islandtp
-			if target and target ~= "" then
-				_STOP = false
-				PMT_FastHopTo(target)
-			end
-		end
-	end
-end)
-local function getWorldKey()
-	if World1 then return "World1" end
-	if World2 then return "World2" end
-	if World3 then return "World3" end
-	return "World1"
-end
-
-local function BuildIslandOptions()
+function BuildIslandOptions()
 	local wk = getWorldKey()
 	local list = WorldIslands[wk] or {}
 	local out, seen = {}, {}
@@ -286,7 +267,8 @@ local function BuildIslandOptions()
 	table.sort(out)
 	return out
 end
-local function PMT_IsNearIsland(name, range)
+
+function PMT_IsNearIsland(name, range)
 	local cf = IslandCF and IslandCF[name]
 	if not cf then return true end
 	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -294,7 +276,7 @@ local function PMT_IsNearIsland(name, range)
 	return (hrp.Position - cf.Position).Magnitude <= (range or 2500)
 end
 
-local function PMT_EnsureIsland(name, range, tries)
+function PMT_EnsureIsland(name, range, tries)
 	range = range or 3000
 	tries = tries or 3
 
@@ -324,14 +306,15 @@ local function PMT_EnsureIsland(name, range, tries)
 
 	return PMT_IsNearIsland(name, range)
 end
-end
-				pcall(function() _tp(cf) end)
+
+task.spawn(function()
+	while task.wait(0.25) do
+		if _G.Tpfast and not _RUN then
+			local target = _G.Islandtp
+			if target and target ~= "" then
+				_STOP = false
+				PMT_FastHopTo(target)
 			end
 		end
-
-		task.wait(0.25)
-		if PMT_IsNearIsland(name, range) then return true end
 	end
-
-	return PMT_IsNearIsland(name, range)
-end
+end)
