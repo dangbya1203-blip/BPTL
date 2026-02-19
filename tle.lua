@@ -302,9 +302,22 @@ function PMT_FastHopTo(targetName)
             if not DieAndRespawn(pos) then break end
 
         else
-            -- Đảo TRUNG GIAN → chỉ set CFrame, KHÔNG die
-            if not QuickTP(pos) then break end
-            task.wait(0.05)
+            -- Đảo TRUNG GIAN → thử QuickTP trước
+            local ok = QuickTP(pos)
+            if _STOP then break end
+
+            -- Kiểm tra thực tế: có đến nơi chưa?
+            local c2   = LP.Character
+            local hrp3 = c2 and c2:FindFirstChild("HumanoidRootPart")
+            local arrived = hrp3 and dist(hrp3.Position, pos) <= getgenv().PMT_SKIP_IF_NEAR
+
+            if not arrived then
+                -- Server không accept → fallback die+respawn
+                warn("PMT: QuickTP thất bại tại " .. name .. " → fallback DieAndRespawn")
+                if not DieAndRespawn(pos) or _STOP then break end
+            else
+                task.wait(0.05)
+            end
         end
     end
 
