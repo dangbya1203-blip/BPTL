@@ -4,11 +4,12 @@ local LP = Players.LocalPlayer
 -- ============================================================
 -- Cấu hình
 -- ============================================================
-getgenv().PMT_MAX_STEP_DIST   = getgenv().PMT_MAX_STEP_DIST   or 9000
+getgenv().PMT_MAX_STEP_DIST   = getgenv().PMT_MAX_STEP_DIST   or 12000 -- tăng để ít bước hơn
 getgenv().PMT_HOLD_TIME       = getgenv().PMT_HOLD_TIME       or 1.0
 getgenv().PMT_HOLD_STEP       = getgenv().PMT_HOLD_STEP       or 0.03
 getgenv().PMT_RESPAWN_TIMEOUT = getgenv().PMT_RESPAWN_TIMEOUT or 7
-getgenv().PMT_SKIP_IF_NEAR    = getgenv().PMT_SKIP_IF_NEAR    or 800
+getgenv().PMT_SKIP_IF_NEAR    = getgenv().PMT_SKIP_IF_NEAR    or 600
+getgenv().PMT_VERIFY_DIST     = getgenv().PMT_VERIFY_DIST     or 1500  -- threshold verify QuickTP
 
 -- ============================================================
 -- Dữ liệu đảo
@@ -91,9 +92,8 @@ end
 
 local function getNodes()
     if _cachedNodes then return _cachedNodes end
-    local list = WorldIslands[getWorldKey()] or {}
     local nodes = {}
-    for _, n in ipairs(list) do
+    for _, n in ipairs(WorldIslands[getWorldKey()] or {}) do
         if IslandCF[n] then nodes[#nodes+1] = n end
     end
     _cachedNodes = nodes
@@ -107,12 +107,10 @@ local function getAdj()
     local adj = {}
     for _, a in ipairs(nodes) do adj[a] = {} end
     for i = 1, #nodes do
-        local ai = nodes[i]
-        local ap = IslandCF[ai].Position
+        local ai, ap = nodes[i], IslandCF[nodes[i]].Position
         for j = i+1, #nodes do
-            local bj = nodes[j]
-            local bp = IslandCF[bj].Position
-            local d  = (ap - bp).Magnitude
+            local bj, bp = nodes[j], IslandCF[nodes[j]].Position
+            local d = (ap - bp).Magnitude
             if d <= maxStep then
                 adj[ai][bj] = d
                 adj[bj][ai] = d
@@ -134,24 +132,40 @@ end
 -- ============================================================
 local function normName(name)
     if type(name) ~= "string" then return nil end
-    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+    name = name:gsub("^%s+",""):gsub("%s+$","")
     return Alias[name] or name
 end
 
 local function dist(a, b) return (a - b).Magnitude end
 
-local function GetChar()
-    local c   = LP.Character or LP.CharacterAdded:Wait()
-    local hrp = c:WaitForChild("HumanoidRootPart", 10)
-    local hum = c:FindFirstChildOfClass("Humanoid")
-    if not (hrp and hum) then return end
-    return c, hrp, hum
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHum()
+    local c = LP.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+local function isAlive()
+    local hrp = getHRP()
+    local hum = getHum()
+    return hrp and hum and hum.Health > 0
+end
+
+local function waitRespawn(timeout)
+    local t0 = os.clock()
+    while os.clock() - t0 < (timeout or getgenv().PMT_RESPAWN_TIMEOUT) do
+        if isAlive() then return true end
+        task.wait(0.1)
+    end
+    return false
 end
 
 local function nearestIsland(pos)
-    local nodes = getNodes()
     local best, bestD
-    for _, n in ipairs(nodes) do
+    for _, n in ipairs(getNodes()) do
         local d = dist(pos, IslandCF[n].Position)
         if not bestD or d < bestD then bestD, best = d, n end
     end
@@ -185,70 +199,64 @@ local function dijkstra(startName, goalName)
 end
 
 -- ============================================================
--- Teleport helpers
+-- Core: set CFrame và giữ
 -- ============================================================
-local _STOP, _RUN = false, false
+local _STOP = false
+local _RUN  = false
 
--- Chỉ set CFrame, KHÔNG die — dùng cho đảo trung gian
-local function QuickTP(pos)
-    local c, hrp, hum = GetChar()
-    if not c then return false end
-    local cf = CFrame.new(pos)
-    -- Giữ vị trí trong PMT_HOLD_TIME để server accept
+local function holdAt(cf, duration)
     local t0 = os.clock()
-    while os.clock() - t0 < getgenv().PMT_HOLD_TIME do
+    while os.clock() - t0 < duration do
         if _STOP then return false end
-        if not (hrp and hrp.Parent and hum and hum.Parent and hum.Health > 0) then return false end
+        if not isAlive() then return false end
         pcall(function()
-            hrp.CFrame = cf
-            hrp.AssemblyLinearVelocity  = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
+            local hrp = getHRP()
+            if hrp then
+                hrp.CFrame = cf
+                hrp.AssemblyLinearVelocity  = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
         end)
         task.wait(getgenv().PMT_HOLD_STEP)
     end
     return true
 end
 
--- Die + respawn — chỉ dùng 1 lần ở đích cuối
-local function DieAndRespawn(pos)
-    local c, hrp, hum = GetChar()
-    if not c then return false end
+-- QuickTP: set CFrame không die, trả về true nếu server accept
+local function QuickTP(pos)
     local cf = CFrame.new(pos)
+    if not holdAt(cf, getgenv().PMT_HOLD_TIME) then return false end
+    -- Verify: server có accept không?
+    local hrp = getHRP()
+    if not hrp then return false end
+    return dist(hrp.Position, pos) <= getgenv().PMT_VERIFY_DIST
+end
 
-    -- Set vị trí đích
+-- DieTP: set CFrame → die → respawn tại đó
+local function DieTP(pos)
+    local cf = CFrame.new(pos)
+    -- Set vị trí trước khi die
     pcall(function()
-        hrp.CFrame = cf
-        hrp.AssemblyLinearVelocity  = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end)
-
-    -- Giữ ngắn rồi die
-    local t0 = os.clock()
-    while os.clock() - t0 < getgenv().PMT_HOLD_TIME do
-        if _STOP then return false end
-        if not (hrp and hrp.Parent and hum and hum.Parent and hum.Health > 0) then break end
-        pcall(function()
+        local hrp = getHRP()
+        if hrp then
             hrp.CFrame = cf
             hrp.AssemblyLinearVelocity  = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
-        end)
-        task.wait(getgenv().PMT_HOLD_STEP)
-    end
-
-    if _STOP then return false end
-    pcall(function() hum.Health = 0 end)
-
+        end
+    end)
+    task.wait(0.1)
+    -- Die
+    local hum = getHum()
+    if hum then pcall(function() hum.Health = 0 end) end
     -- Đợi respawn
-    local t1 = os.clock()
-    while os.clock() - t1 < getgenv().PMT_RESPAWN_TIMEOUT do
-        if _STOP then return false end
-        local nc   = LP.Character
-        local nhrp = nc and nc:FindFirstChild("HumanoidRootPart")
-        local nhum = nc and nc:FindFirstChildOfClass("Humanoid")
-        if nhrp and nhum and nhum.Health > 0 then return true end
-        task.wait(0.15)
-    end
-    return false
+    if not waitRespawn() then return false end
+    -- Sau respawn set lại vị trí thêm 1 lần cho chắc
+    task.wait(0.2)
+    pcall(function()
+        local hrp = getHRP()
+        if hrp then hrp.CFrame = cf end
+    end)
+    return true
 end
 
 -- ============================================================
@@ -261,23 +269,14 @@ function PMT_FastHopTo(targetName)
         return false
     end
 
-    local nodes = getNodes()
-    if #nodes == 0 then return false end
-
-    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        -- Chờ respawn nếu chưa có character
-        local t0 = os.clock()
-        while os.clock() - t0 < getgenv().PMT_RESPAWN_TIMEOUT do
-            hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then break end
-            task.wait(0.15)
-        end
+    if not isAlive() then
+        if not waitRespawn() then return false end
     end
+
+    local hrp = getHRP()
     if not hrp then return false end
 
-    local startIsland = nearestIsland(hrp.Position)
-    local path = dijkstra(startIsland, targetName)
+    local path = dijkstra(nearestIsland(hrp.Position), targetName)
     if not path then
         warn("PMT: Không tìm được đường đến " .. targetName)
         return false
@@ -290,31 +289,27 @@ function PMT_FastHopTo(targetName)
         if _STOP then break end
 
         local pos  = IslandCF[name].Position
-        local ch   = LP.Character
-        local hrp2 = ch and ch:FindFirstChild("HumanoidRootPart")
+        local hrp2 = getHRP()
 
-        -- Bỏ qua nếu đã đủ gần
+        -- Đã đủ gần → bỏ qua
         if hrp2 and dist(hrp2.Position, pos) <= getgenv().PMT_SKIP_IF_NEAR then
             task.wait(0.05)
+            continue -- luau syntax
+        end
 
-        elseif i == total then
-            -- ĐÂY LÀ ĐÍCH CUỐI → die + respawn 1 lần duy nhất
-            if not DieAndRespawn(pos) then break end
+        local isLast = (i == total)
 
+        if isLast then
+            -- Đích cuối → luôn DieTP để chắc chắn
+            if not DieTP(pos) or _STOP then break end
         else
-            -- Đảo TRUNG GIAN → thử QuickTP trước
+            -- Trung gian → thử QuickTP trước
             local ok = QuickTP(pos)
             if _STOP then break end
 
-            -- Kiểm tra thực tế: có đến nơi chưa?
-            local c2   = LP.Character
-            local hrp3 = c2 and c2:FindFirstChild("HumanoidRootPart")
-            local arrived = hrp3 and dist(hrp3.Position, pos) <= getgenv().PMT_SKIP_IF_NEAR
-
-            if not arrived then
-                -- Server không accept → fallback die+respawn
-                warn("PMT: QuickTP thất bại tại " .. name .. " → fallback DieAndRespawn")
-                if not DieAndRespawn(pos) or _STOP then break end
+            if not ok then
+                -- QuickTP fail → fallback DieTP
+                if not DieTP(pos) or _STOP then break end
             else
                 task.wait(0.05)
             end
@@ -325,15 +320,15 @@ function PMT_FastHopTo(targetName)
     return not _STOP
 end
 
-function PMT_StopFastHop()  _STOP = true end
+function PMT_StopFastHop()     _STOP = true end
 function PMT_IsFastHopRunning() return _RUN end
 
 function PMT_IsNearIsland(name, range)
     local cf = IslandCF[name]
     if not cf then return true end
-    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local hrp = getHRP()
     if not hrp then return false end
-    return (hrp.Position - cf.Position).Magnitude <= (range or 2500)
+    return dist(hrp.Position, cf.Position) <= (range or 2500)
 end
 
 function PMT_EnsureIsland(name, range, tries)
@@ -341,18 +336,15 @@ function PMT_EnsureIsland(name, range, tries)
     tries = tries or 3
     if PMT_IsNearIsland(name, range) then return true end
     for _ = 1, tries do
-        if not (_G.AutoFarm_Bone and _G.Bypass) then
-            return PMT_IsNearIsland(name, range)
-        end
+        if not (_G.AutoFarm_Bone and _G.Bypass) then break end
         PMT_StopFastHop()
-        if _G.Bypass then
-            pcall(function() PMT_FastHopTo(name) end)
-        else
-            local cf = IslandCF[name]
-            if cf and typeof(_tp) == "function" then
-                pcall(function() _tp(cf) end)
+        pcall(function()
+            if _G.Bypass then
+                PMT_FastHopTo(name)
+            elseif IslandCF[name] and typeof(_tp) == "function" then
+                _tp(IslandCF[name])
             end
-        end
+        end)
         task.wait(0.25)
         if PMT_IsNearIsland(name, range) then return true end
     end
@@ -360,9 +352,8 @@ function PMT_EnsureIsland(name, range, tries)
 end
 
 function BuildIslandOptions()
-    local list = WorldIslands[getWorldKey()] or {}
     local out, seen = {}, {}
-    for _, name in ipairs(list) do
+    for _, name in ipairs(WorldIslands[getWorldKey()] or {}) do
         local r = Alias[name] or name
         if IslandCF[r] and not seen[r] then
             seen[r] = true
