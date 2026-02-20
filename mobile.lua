@@ -111,32 +111,20 @@ ShineGradient.Transparency = NumberSequence.new({
 ShineGradient.Offset = Vector2.new(-1, 0)
 
 local shineTween = TweenService:Create(ShineGradient, TweenInfo.new(
-	1.5, 
-	Enum.EasingStyle.Linear,
-	Enum.EasingDirection.InOut,
-	-1, 
-	false,
-	2.5 
+	1.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false, 2.5
 ), {Offset = Vector2.new(1, 0)})
 shineTween:Play()
 
 -- =================================================================
--- 6. CLAMP + AUTO SNAP VÀO CẠNH MÀN HÌNH
+-- CLAMP + AUTO SNAP VÀO CẠNH MÀN HÌNH
 -- =================================================================
-
--- Lấy kích thước màn hình (cập nhật khi resize)
 local function getScreenSize()
 	return MobileGui.AbsoluteSize
 end
 
--- =================================================================
--- SAFE ZONE: tránh navbar Roblox (góc trên trái ~120px x 80px)
--- Nếu nút snap vào cạnh trái mà Y < NAVBAR_HEIGHT thì bị che
--- =================================================================
-local NAVBAR_HEIGHT = 90   -- chiều cao vùng navbar (px), chỉnh nếu cần
-local NAVBAR_WIDTH  = 130  -- chiều rộng vùng navbar bên trái
+local NAVBAR_HEIGHT = 90
+local SNAP_PADDING  = 8
 
--- Clamp vị trí nút trong màn hình (tính theo offset tuyệt đối)
 local function clampPosition(x, y)
 	local screen = getScreenSize()
 	local padding = 5
@@ -145,66 +133,52 @@ local function clampPosition(x, y)
 	return x, y
 end
 
--- Snap nút vào cạnh trái hoặc phải gần nhất, tránh navbar
-local SNAP_PADDING = 8
-
 local function snapToEdge()
-	local screen = getScreenSize()
+	local screen   = getScreenSize()
 	local currentX = MobileButton.Position.X.Offset
 	local currentY = MobileButton.Position.Y.Offset
-
 	local _, clampedY = clampPosition(currentX, currentY)
-
-	local centerX = screen.X / 2
-
+	local centerX  = screen.X / 2
 	local targetX
-	if currentX + BUTTON_SIZE / 2 < centerX then
-		-- Muốn snap cạnh TRÁI
-		targetX = SNAP_PADDING
 
-		-- Nếu Y nằm trong vùng navbar → đẩy xuống dưới navbar
+	if currentX + BUTTON_SIZE / 2 < centerX then
+		targetX = SNAP_PADDING
 		if clampedY < NAVBAR_HEIGHT then
 			clampedY = NAVBAR_HEIGHT + SNAP_PADDING
 		end
 	else
-		-- Snap cạnh PHẢI → navbar không ảnh hưởng
 		targetX = screen.X - BUTTON_SIZE - SNAP_PADDING
 	end
 
-	TweenService:Create(MobileButton, TweenInfo.new(
-		0.35,
-		Enum.EasingStyle.Quint,
-		Enum.EasingDirection.Out
-	), {
+	TweenService:Create(MobileButton, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 		Position = UDim2.new(0, targetX, 0, clampedY)
 	}):Play()
 end
 
 -- =================================================================
--- 7. Click & Kéo Thả
+-- CLICK & KÉO THẢ
 -- =================================================================
 local clickTweenIn  = TweenService:Create(MobileButton, TweenInfo.new(0.1), {Size = UDim2.new(0, BUTTON_SIZE - 5, 0, BUTTON_SIZE - 5)})
 local clickTweenOut = TweenService:Create(MobileButton, TweenInfo.new(0.1), {Size = UDim2.new(0, BUTTON_SIZE, 0, BUTTON_SIZE)})
 
-local dragging    = false
-local dragInput   = nil
-local mousePos    = nil
-local framePos    = nil
-local dragMoved   = false  -- phân biệt click vs drag
-local DRAG_THRESHOLD = 6   -- pixel tối thiểu để coi là đang kéo
+local dragging       = false
+local dragInput      = nil
+local mousePos       = nil
+local framePos       = nil
+local dragMoved      = false
+local DRAG_THRESHOLD = 6
 
 MobileButton.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging   = true
-		dragMoved  = false
-		mousePos   = input.Position
-		framePos   = MobileButton.Position
+		dragging  = true
+		dragMoved = false
+		mousePos  = input.Position
+		framePos  = MobileButton.Position
 
 		input.Changed:Connect(function()
 			if input.UserInputState == Enum.UserInputState.End then
 				if dragging then
 					dragging = false
-					-- Snap vào cạnh sau khi thả
 					snapToEdge()
 				end
 			end
@@ -221,33 +195,52 @@ end)
 UserInputService.InputChanged:Connect(function(input)
 	if input == dragInput and dragging then
 		local delta = input.Position - mousePos
-
-		-- Chỉ tính là kéo nếu đã vượt ngưỡng
 		if not dragMoved and delta.Magnitude >= DRAG_THRESHOLD then
 			dragMoved = true
 		end
-
 		if dragMoved then
-			local newX = framePos.X.Offset + delta.X
-			local newY = framePos.Y.Offset + delta.Y
-
-			-- Clamp không cho ra ngoài màn hình
-			local cx, cy = clampPosition(newX, newY)
-
+			local cx, cy = clampPosition(
+				framePos.X.Offset + delta.X,
+				framePos.Y.Offset + delta.Y
+			)
 			MobileButton.Position = UDim2.new(0, cx, 0, cy)
 		end
 	end
 end)
 
--- Chỉ kích hoạt Window:Minimize nếu không phải đang kéo
+-- =================================================================
+-- BẬT/TẮT UI KHI BẤM LOGO
+-- Fluent không có hàm Minimize() trực tiếp — cách đúng là
+-- fire giả lập phím MinimizeKey mà Window đang lắng nghe
+-- =================================================================
 MobileButton.Activated:Connect(function()
-	if dragMoved then return end  -- bỏ qua nếu vừa kéo xong
+	if dragMoved then return end
 
 	clickTweenIn:Play()
 	task.wait(0.1)
 	clickTweenOut:Play()
 
-	if Window and typeof(Window.Minimize) == "function" then 
-		Window:Minimize() 
+	-- Lấy key từ _G (được gán trong main script)
+	local key = _G.NemoMinimizeKey
+	if key then
+		-- Fire InputBegan giả để Fluent nhận phím tắt
+		local vInputService = game:GetService("VirtualInputManager")
+		if vInputService then
+			pcall(function()
+				vInputService:SendKeyEvent(true,  key, false, game)
+				task.wait(0.05)
+				vInputService:SendKeyEvent(false, key, false, game)
+			end)
+		else
+			-- Fallback: dùng UserInputService fire thủ công
+			pcall(function()
+				local fakeInput = {
+					KeyCode        = key,
+					UserInputType  = Enum.UserInputType.Keyboard,
+					UserInputState = Enum.UserInputState.Begin,
+				}
+				UserInputService.InputBegan:Fire(fakeInput, false)
+			end)
+		end
 	end
 end)
