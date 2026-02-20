@@ -1,479 +1,253 @@
---[[
-    tle.lua — Fast Island Hop Module
-    Viết từ đầu, tối ưu hoàn toàn
-    
-    API:
-        PMT_FastHopTo(name)         → di chuyển đến đảo
-        PMT_StopFastHop()           → dừng
-        PMT_IsFastHopRunning()      → đang chạy?
-        PMT_IsNearIsland(name, r)   → đang gần đảo?
-        PMT_ResetCache()            → reset cache khi đổi world
-        BuildIslandOptions()        → danh sách đảo hiện tại
-]]
+-- =================================================================
+-- CẤU HÌNH LOGO
+-- =================================================================
+local YOUR_LOGO_ID = "rbxassetid://96946975520738" 
+local BUTTON_SIZE = 50
+-- =================================================================
 
--- ============================================================
--- Services & config
--- ============================================================
-local Players    = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local LP         = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
-local CFG = {
-    MAX_STEP    = 12000,  -- khoảng cách tối đa giữa 2 đảo liền kề trong graph
-    HOLD_TIME   = 1.0,    -- giây giữ CFrame mỗi bước
-    HOLD_STEP   = 0.03,   -- interval update CFrame khi giữ
-    RESPAWN_TO  = 8,      -- timeout chờ respawn
-    SKIP_NEAR   = 600,    -- bỏ qua nếu đã đủ gần
-    VERIFY_DIST = 1500,   -- threshold để confirm QuickTP thành công
-}
+local UI_NAME = "NemoHubMobileV5_Aqua"
 
--- Override từ ngoài nếu cần
-getgenv().PMT_CFG = CFG
+local targetParent = RunService:IsStudio() and game.Players.LocalPlayer:WaitForChild("PlayerGui") or CoreGui
 
--- ============================================================
--- Dữ liệu đảo
--- ============================================================
-local CF = CFrame.new
-
-local ISLANDS = {
-    -- World 1
-    ["WindMill"]           = CF(979.799,    16.516,   1429.047),
-    ["Marine"]             = CF(-2566.43,    6.856,   2045.256),
-    ["Middle Town"]        = CF(-690.331,   15.094,   1582.238),
-    ["Jungle"]             = CF(-1612.796,  36.852,    149.128),
-    ["Pirate Village"]     = CF(-1181.309,   4.751,   3803.546),
-    ["Desert"]             = CF(944.158,    20.92,    4373.3),
-    ["Snow Island"]        = CF(1347.807,  104.668,  -1319.737),
-    ["MarineFord"]         = CF(-4914.821,  50.964,   4281.028),
-    ["Colosseum"]          = CF(-1427.62,    7.288,  -2792.772),
-    ["Sky Island 1"]       = CF(-4869.103, 733.461,  -2667.018),
-    ["Sky Island 2"]       = CF(-11.311,    29.277,   2771.522),
-    ["Sky Island 3"]       = CF(-483.734,  332.038,    595.327),
-    ["Prison"]             = CF(4875.33,     5.652,    734.85),
-    ["Magma Village"]      = CF(-5247.716,  12.884,   8504.969),
-    ["Under Water Island"] = CF(61163.852,  11.68,    1819.784),
-    ["Fountain City"]      = CF(5127.128,   59.501,   4105.446),
-    -- World 2
-    ["The Cafe"]           = CF(-380.479,   77.22,     255.826),
-    ["Frist Spot"]         = CF(-9515.372, 164.006,   5786.061),
-    ["Dark Area"]          = CF(3780.03,    22.652,  -3498.586),
-    ["Flamingo Mansion"]   = CF(-3032.764, 317.897, -10075.373),
-    ["Flamingo Room"]      = CF(2284.414,   15.152,    875.725),
-    ["Green Zone"]         = CF(-2448.53,   73.016,  -3210.631),
-    ["Factory"]            = CF(424.127,   211.162,   -427.54),
-    ["Colossuim"]          = CF(-1503.622, 219.796,   1369.31),
-    ["Zombie Island"]      = CF(-5622.033, 492.196,   -781.786),
-    ["Two Snow Mountain"]  = CF(753.143,   408.236,  -5274.615),
-    ["Punk Hazard"]        = CF(-6127.654,  15.952,  -5040.286),
-    ["Cursed Ship"]        = CF(923.402,   125.057,  32885.875),
-    ["Ice Castle"]         = CF(6148.412,  294.387,  -6741.117),
-    ["Forgotten Island"]   = CF(2681.274,  1682.809, -7190.985),
-    -- World 3
-    ["Sea castle"]         = CF(-5496.452, 313.809,  -2857.703),
-    ["Mini Sky Island"]    = CF(-288.741, 49326.316,-35248.594),
-    ["Great Tree"]         = CF(2681.274,  1682.809, -7190.985),
-    ["Port Town"]          = CF(-226.751,   20.603,   5538.34),
-    ["Hydra Island"]       = CF(5291.249,  1005.443,   393.762),
-    ["Mansion"]            = CF(-12633.672, 459.521, -7425.463),
-    ["Haunted Castle"]     = CF(-9366.803, 141.366,   5443.941),
-    ["Ice Cream Island"]   = CF(-902.568,   79.932, -10988.848),
-    ["Peanut Island"]      = CF(-2062.748,  50.474, -10232.568),
-    ["Cake Island"]        = CF(-1884.775,  19.328, -11666.897),
-    ["Cocoa Island"]       = CF(87.943,     73.555, -12319.465),
-    ["Candy Island"]       = CF(-1014.424, 149.111, -14555.963),
-    ["Tiki Outpost"]       = CF(-16218.683,  9.086,    445.618),
-    ["Dragon Dojo"]        = CF(5743.319,  1206.91,    936.011),
-}
-
-local ALIAS = {
-    ["MiniSky"]   = "Mini Sky Island",
-    ["Colosseum"] = "Colosseum",
-    ["Colossuim"] = "Colossuim",
-}
-
--- Đảo cô lập: không có neighbor → DieTP thẳng, bỏ qua Dijkstra
-local ISOLATED = {
-    ["Under Water Island"] = true,
-}
-
--- Đảo cao hoặc đặc biệt: QuickTP bị server reject → luôn dùng DieTP
-local FORCE_DIE = {
-    ["Sky Island 1"]    = true,
-    ["Sky Island 3"]    = true,
-    ["Mini Sky Island"] = true,
-    ["Forgotten Island"]= true,
-    ["Hydra Island"]    = true,
-}
-
-local WORLDS = {
-    World1 = {"WindMill","Marine","Middle Town","Jungle","Pirate Village","Desert",
-              "Snow Island","MarineFord","Colosseum","Sky Island 1","Sky Island 2",
-              "Sky Island 3","Prison","Magma Village","Under Water Island","Fountain City"},
-    World2 = {"The Cafe","Frist Spot","Dark Area","Flamingo Mansion","Flamingo Room",
-              "Green Zone","Factory","Colossuim","Zombie Island","Two Snow Mountain",
-              "Punk Hazard","Cursed Ship","Ice Castle","Forgotten Island"},
-    World3 = {"Sea castle","Mini Sky Island","Great Tree","Port Town","Hydra Island",
-              "Mansion","Haunted Castle","Ice Cream Island","Peanut Island","Cake Island",
-              "Cocoa Island","Candy Island","Tiki Outpost","Dragon Dojo"},
-}
-
--- ============================================================
--- Cache layer — tính 1 lần, dùng mãi
--- ============================================================
-local Cache = {}
-
-local function worldKey()
-    if Cache.wk then return Cache.wk end
-    Cache.wk = (_G.CurrentWorld == 2 and "World2")
-            or (_G.CurrentWorld == 3 and "World3")
-            or "World1"
-    return Cache.wk
+if targetParent:FindFirstChild(UI_NAME) then
+	targetParent[UI_NAME]:Destroy()
 end
 
-local function nodes()
-    if Cache.nodes then return Cache.nodes end
-    local t = {}
-    for _, n in ipairs(WORLDS[worldKey()] or {}) do
-        if ISLANDS[n] then t[#t+1] = n end
-    end
-    Cache.nodes = t
-    return t
+-- 1. Tạo ScreenGui
+local MobileGui = Instance.new("ScreenGui")
+MobileGui.Name = UI_NAME
+MobileGui.Parent = targetParent
+MobileGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+MobileGui.ResetOnSpawn = false
+MobileGui.IgnoreGuiInset = true 
+
+-- 2. Tạo nút chính
+local MobileButton = Instance.new("TextButton")
+MobileButton.Name = "MainButtonCircle"
+MobileButton.Parent = MobileGui
+MobileButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MobileButton.Position = UDim2.new(0, 30, 0.5, -35)
+MobileButton.Size = UDim2.new(0, BUTTON_SIZE, 0, BUTTON_SIZE)
+MobileButton.Text = ""
+MobileButton.AutoButtonColor = false
+MobileButton.ClipsDescendants = true 
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(1, 0) 
+MainCorner.Parent = MobileButton
+
+-- 3. Viền Gradient Động (MÀU AQUA)
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Parent = MobileButton
+UIStroke.Thickness = 4
+UIStroke.Color = Color3.new(1, 1, 1)
+UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+local BorderGradient = Instance.new("UIGradient")
+BorderGradient.Parent = UIStroke
+BorderGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0.00, Color3.fromRGB(0, 255, 255)),
+	ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 150, 255)),
+	ColorSequenceKeypoint.new(1.00, Color3.fromRGB(0, 255, 255))
+})
+
+local rotationSpeed = 150
+local currentRotation = 0
+local rotationConnection
+
+rotationConnection = RunService.Heartbeat:Connect(function(deltaTime)
+	if BorderGradient and BorderGradient.Parent then
+		currentRotation = (currentRotation + rotationSpeed * deltaTime) % 360
+		BorderGradient.Rotation = currentRotation
+	else
+		rotationConnection:Disconnect()
+	end
+end)
+
+-- 4. Logo
+local LogoImage = Instance.new("ImageLabel")
+LogoImage.Name = "LogoIconLayer"
+LogoImage.Parent = MobileButton
+LogoImage.AnchorPoint = Vector2.new(0.5, 0.5)
+LogoImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+LogoImage.Size = UDim2.new(1, 0, 1, 0) 
+LogoImage.BackgroundTransparency = 1
+LogoImage.Image = YOUR_LOGO_ID
+LogoImage.ScaleType = Enum.ScaleType.Crop 
+LogoImage.ZIndex = 2 
+
+local LogoCorner = Instance.new("UICorner")
+LogoCorner.CornerRadius = UDim.new(1, 0) 
+LogoCorner.Parent = LogoImage
+
+-- 5. Hiệu ứng Shine
+local ShineFrame = Instance.new("Frame")
+ShineFrame.Name = "ShineEffectLayer"
+ShineFrame.Parent = MobileButton
+ShineFrame.Size = UDim2.new(1, 0, 1, 0)
+ShineFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+ShineFrame.BorderSizePixel = 0
+ShineFrame.ZIndex = 3 
+
+local ShineCorner = Instance.new("UICorner")
+ShineCorner.CornerRadius = UDim.new(1, 0)
+ShineCorner.Parent = ShineFrame
+
+local ShineGradient = Instance.new("UIGradient")
+ShineGradient.Parent = ShineFrame
+ShineGradient.Rotation = 45
+ShineGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 1),
+	NumberSequenceKeypoint.new(0.4, 1),
+	NumberSequenceKeypoint.new(0.5, 0.4), 
+	NumberSequenceKeypoint.new(0.6, 1),
+	NumberSequenceKeypoint.new(1, 1)
+})
+ShineGradient.Offset = Vector2.new(-1, 0)
+
+local shineTween = TweenService:Create(ShineGradient, TweenInfo.new(
+	1.5, 
+	Enum.EasingStyle.Linear,
+	Enum.EasingDirection.InOut,
+	-1, 
+	false,
+	2.5 
+), {Offset = Vector2.new(1, 0)})
+shineTween:Play()
+
+-- =================================================================
+-- 6. CLAMP + AUTO SNAP VÀO CẠNH MÀN HÌNH
+-- =================================================================
+
+-- Lấy kích thước màn hình (cập nhật khi resize)
+local function getScreenSize()
+	return MobileGui.AbsoluteSize
 end
 
--- Pre-build adjacency graph
-local function adj()
-    if Cache.adj then return Cache.adj end
-    local ns  = nodes()
-    local max = CFG.MAX_STEP
-    local g   = {}
-    for _, a in ipairs(ns) do g[a] = {} end
-    for i = 1, #ns do
-        local ai, ap = ns[i], ISLANDS[ns[i]].Position
-        for j = i+1, #ns do
-            local bj, bp = ns[j], ISLANDS[ns[j]].Position
-            local d = (ap - bp).Magnitude
-            if d <= max then
-                g[ai][bj] = d
-                g[bj][ai] = d
-            end
-        end
-    end
-    Cache.adj = g
-    return g
+-- =================================================================
+-- SAFE ZONE: tránh navbar Roblox (góc trên trái ~120px x 80px)
+-- Nếu nút snap vào cạnh trái mà Y < NAVBAR_HEIGHT thì bị che
+-- =================================================================
+local NAVBAR_HEIGHT = 90   -- chiều cao vùng navbar (px), chỉnh nếu cần
+local NAVBAR_WIDTH  = 130  -- chiều rộng vùng navbar bên trái
+
+-- Clamp vị trí nút trong màn hình (tính theo offset tuyệt đối)
+local function clampPosition(x, y)
+	local screen = getScreenSize()
+	local padding = 5
+	x = math.clamp(x, padding, screen.X - BUTTON_SIZE - padding)
+	y = math.clamp(y, padding, screen.Y - BUTTON_SIZE - padding)
+	return x, y
 end
 
-function PMT_ResetCache()
-    Cache = {}
+-- Snap nút vào cạnh trái hoặc phải gần nhất, tránh navbar
+local SNAP_PADDING = 8
+
+local function snapToEdge()
+	local screen = getScreenSize()
+	local currentX = MobileButton.Position.X.Offset
+	local currentY = MobileButton.Position.Y.Offset
+
+	local _, clampedY = clampPosition(currentX, currentY)
+
+	local centerX = screen.X / 2
+
+	local targetX
+	if currentX + BUTTON_SIZE / 2 < centerX then
+		-- Muốn snap cạnh TRÁI
+		targetX = SNAP_PADDING
+
+		-- Nếu Y nằm trong vùng navbar → đẩy xuống dưới navbar
+		if clampedY < NAVBAR_HEIGHT then
+			clampedY = NAVBAR_HEIGHT + SNAP_PADDING
+		end
+	else
+		-- Snap cạnh PHẢI → navbar không ảnh hưởng
+		targetX = screen.X - BUTTON_SIZE - SNAP_PADDING
+	end
+
+	TweenService:Create(MobileButton, TweenInfo.new(
+		0.35,
+		Enum.EasingStyle.Quint,
+		Enum.EasingDirection.Out
+	), {
+		Position = UDim2.new(0, targetX, 0, clampedY)
+	}):Play()
 end
 
--- ============================================================
--- Helpers
--- ============================================================
-local function norm(name)
-    if type(name) ~= "string" then return nil end
-    name = name:match("^%s*(.-)%s*$") -- trim
-    return ALIAS[name] or name
-end
+-- =================================================================
+-- 7. Click & Kéo Thả
+-- =================================================================
+local clickTweenIn  = TweenService:Create(MobileButton, TweenInfo.new(0.1), {Size = UDim2.new(0, BUTTON_SIZE - 5, 0, BUTTON_SIZE - 5)})
+local clickTweenOut = TweenService:Create(MobileButton, TweenInfo.new(0.1), {Size = UDim2.new(0, BUTTON_SIZE, 0, BUTTON_SIZE)})
 
-local function d(a, b) return (a - b).Magnitude end
+local dragging    = false
+local dragInput   = nil
+local mousePos    = nil
+local framePos    = nil
+local dragMoved   = false  -- phân biệt click vs drag
+local DRAG_THRESHOLD = 6   -- pixel tối thiểu để coi là đang kéo
 
--- Trả về hrp nếu alive
-local function hrp()
-    local c = LP.Character
-    if not c then return nil end
-    local h = c:FindFirstChild("HumanoidRootPart")
-    local m = c:FindFirstChildOfClass("Humanoid")
-    if h and m and m.Health > 0 then return h, m end
-    return nil
-end
+MobileButton.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging   = true
+		dragMoved  = false
+		mousePos   = input.Position
+		framePos   = MobileButton.Position
 
--- Đặt CFrame an toàn
-local function setCF(h, cf)
-    pcall(function()
-        h.CFrame = cf
-        h.AssemblyLinearVelocity  = Vector3.zero
-        h.AssemblyAngularVelocity = Vector3.zero
-    end)
-end
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				if dragging then
+					dragging = false
+					-- Snap vào cạnh sau khi thả
+					snapToEdge()
+				end
+			end
+		end)
+	end
+end)
 
--- Đảo gần nhất với vị trí pos
-local function nearest(pos)
-    local best, bestD
-    for _, n in ipairs(nodes()) do
-        local dd = d(pos, ISLANDS[n].Position)
-        if not bestD or dd < bestD then bestD, best = dd, n end
-    end
-    return best
-end
+MobileButton.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then 
+		dragInput = input 
+	end
+end)
 
--- ============================================================
--- Pathfinding — Dijkstra với pre-built graph
--- ============================================================
-local function findPath(from, to)
-    local ns    = nodes()
-    local graph = adj()
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		local delta = input.Position - mousePos
 
-    -- Early exit nếu cùng đảo
-    if from == to then return {from} end
+		-- Chỉ tính là kéo nếu đã vượt ngưỡng
+		if not dragMoved and delta.Magnitude >= DRAG_THRESHOLD then
+			dragMoved = true
+		end
 
-    local dist, prev, done = {}, {}, {}
-    for _, n in ipairs(ns) do dist[n] = math.huge end
-    dist[from] = 0
+		if dragMoved then
+			local newX = framePos.X.Offset + delta.X
+			local newY = framePos.Y.Offset + delta.Y
 
-    for _ = 1, #ns do
-        -- Tìm node chưa xử lý có dist nhỏ nhất
-        local u, uDist = nil, math.huge
-        for _, n in ipairs(ns) do
-            if not done[n] and dist[n] < uDist then
-                uDist, u = dist[n], n
-            end
-        end
-        if not u or u == to then break end
-        done[u] = true
+			-- Clamp không cho ra ngoài màn hình
+			local cx, cy = clampPosition(newX, newY)
 
-        for v, w in pairs(graph[u]) do
-            if not done[v] then
-                local nd = dist[u] + w
-                if nd < dist[v] then
-                    dist[v], prev[v] = nd, u
-                end
-            end
-        end
-    end
+			MobileButton.Position = UDim2.new(0, cx, 0, cy)
+		end
+	end
+end)
 
-    if dist[to] == math.huge then return nil end
+-- Chỉ kích hoạt Window:Minimize nếu không phải đang kéo
+MobileButton.Activated:Connect(function()
+	if dragMoved then return end  -- bỏ qua nếu vừa kéo xong
 
-    -- Reconstruct path
-    local path, cur = {}, to
-    while cur do
-        table.insert(path, 1, cur)
-        cur = prev[cur]
-    end
-    return path
-end
+	clickTweenIn:Play()
+	task.wait(0.1)
+	clickTweenOut:Play()
 
--- ============================================================
--- Chờ respawn
--- ============================================================
-local function waitAlive(timeout)
-    local t0 = os.clock()
-    while os.clock() - t0 < (timeout or CFG.RESPAWN_TO) do
-        local h = hrp()
-        if h then return true end
-        task.wait(0.1)
-    end
-    return false
-end
-
--- ============================================================
--- 2 chế độ di chuyển
--- ============================================================
-local _stop = false
-
--- QuickTP: giữ CFrame không die, verify sau
--- Trả về: true nếu server accept, false nếu bị reject
-local function quickTP(pos)
-    local cf = CFrame.new(pos)
-    local t0 = os.clock()
-
-    while os.clock() - t0 < CFG.HOLD_TIME do
-        if _stop then return false end
-        local h, m = hrp()
-        if not h then return false end
-        setCF(h, cf)
-        task.wait(CFG.HOLD_STEP)
-    end
-
-    -- Verify: check vị trí thực tế sau khi giữ
-    local h = hrp()
-    if not h then return false end
-    local accepted = d(h.Position, pos) <= CFG.VERIFY_DIST
-    return accepted
-end
-
--- DieTP: set CFrame → die → đợi respawn → giữ CFrame liên tục sau respawn
--- Dùng cho đảo cao (Sky Island) hoặc đích cuối
-local function dieTP(pos)
-    local cf = CFrame.new(pos)
-
-    local h, m = hrp()
-    if not h then
-        if not waitAlive() then return false end
-        h, m = hrp()
-        if not h then return false end
-    end
-
-    -- Giữ vị trí rồi die
-    local t0 = os.clock()
-    while os.clock() - t0 < CFG.HOLD_TIME do
-        if _stop then return false end
-        h, m = hrp()
-        if not (h and m and m.Health > 0) then break end
-        setCF(h, cf)
-        task.wait(CFG.HOLD_STEP)
-    end
-
-    if _stop then return false end
-
-    -- Die tại vị trí đó
-    local _, hum = hrp()
-    if hum then pcall(function() hum.Health = 0 end) end
-
-    -- Đợi respawn
-    if not waitAlive() then return false end
-
-    -- Sau respawn: liên tục set CFrame trong 1.5s
-    -- Quan trọng với Sky Island vì game spawn dưới đất trước
-    local t1 = os.clock()
-    while os.clock() - t1 < 1.5 do
-        if _stop then break end
-        local nh = hrp()
-        if nh then setCF(nh, cf) end
-        task.wait(CFG.HOLD_STEP)
-    end
-
-    -- Verify cuối: có đến nơi chưa?
-    local nh = hrp()
-    if not nh then return false end
-    local arrived = d(nh.Position, pos) <= CFG.VERIFY_DIST
-
-    -- Nếu vẫn chưa đến (Sky Island quá khó) → thử thêm 1 lần nữa
-    if not arrived then
-        task.wait(0.2)
-        local nh2 = hrp()
-        if nh2 then
-            setCF(nh2, cf)
-            task.wait(0.5)
-            local nh3 = hrp()
-            arrived = nh3 and d(nh3.Position, pos) <= CFG.VERIFY_DIST
-        end
-    end
-
-    return arrived ~= false
-end
-
--- ============================================================
--- Core: di chuyển 1 bước
--- Thử QuickTP trước, fallback DieTP nếu fail
--- ============================================================
-local function moveToIsland(name, isLast)
-    local pos = ISLANDS[name].Position
-    local h   = hrp()
-
-    -- Đã đủ gần → bỏ qua
-    if h and d(h.Position, pos) <= CFG.SKIP_NEAR then
-        return true
-    end
-
-    -- Đích cuối, hoặc đảo cao/đặc biệt → DieTP luôn
-    if isLast or FORCE_DIE[name] then
-        return dieTP(pos)
-    end
-
-    -- Trung gian → thử QuickTP, fallback DieTP
-    local ok = quickTP(pos)
-    if _stop then return false end
-    if ok then return true end
-    return dieTP(pos)
-end
-
--- ============================================================
--- Public API
--- ============================================================
-local _running = false
-
-function PMT_FastHopTo(target)
-    target = norm(target)
-    if not target or not ISLANDS[target] then
-        warn("[PMT] Đảo không hợp lệ: " .. tostring(target))
-        return false
-    end
-
-    if not hrp() then
-        if not waitAlive() then return false end
-    end
-
-    local h = hrp()
-    if not h then return false end
-
-    _running, _stop = true, false
-    local success = false
-
-    -- Đảo cô lập → DieTP thẳng, không cần Dijkstra
-    if ISOLATED[target] then
-        success = dieTP(ISLANDS[target].Position)
-        _running = false
-        return success
-    end
-
-    -- Tìm đường bình thường
-    local start = nearest(h.Position)
-    local path  = findPath(start, target)
-
-    if not path then
-        warn("[PMT] Không tìm được đường đến: " .. target)
-        _running = false
-        return false
-    end
-
-    success = true
-    local total = #path
-
-    for i, name in ipairs(path) do
-        if _stop then success = false; break end
-        local ok = moveToIsland(name, i == total)
-        if not ok or _stop then
-            success = false
-            break
-        end
-    end
-
-    _running = false
-    return success and not _stop
-end
-
-function PMT_StopFastHop()
-    _stop = true
-end
-
-function PMT_IsFastHopRunning()
-    return _running
-end
-
-function PMT_IsNearIsland(name, range)
-    local island = ISLANDS[norm(name) or ""]
-    if not island then return true end
-    local h = hrp()
-    if not h then return false end
-    return d(h.Position, island.Position) <= (range or 2500)
-end
-
-function BuildIslandOptions()
-    local out, seen = {}, {}
-    for _, name in ipairs(WORLDS[worldKey()] or {}) do
-        local r = ALIAS[name] or name
-        if ISLANDS[r] and not seen[r] then
-            seen[r] = true
-            out[#out+1] = r
-        end
-    end
-    table.sort(out)
-    return out
-end
-
--- ============================================================
--- Global trigger loop (tương thích với _G.Tpfast)
--- ============================================================
-task.spawn(function()
-    while task.wait(0.25) do
-        if _G.Tpfast and not _running then
-            local t = _G.Islandtp
-            if t and t ~= "" then
-                _stop = false
-                PMT_FastHopTo(t)
-                _G.Tpfast  = false
-                _G.Islandtp = ""
-            end
-        end
-    end
+	if Window and typeof(Window.Minimize) == "function" then 
+		Window:Minimize() 
+	end
 end)
