@@ -1,21 +1,4 @@
-repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer
 
-getgenv().NemoConfig = {
-    ["InstantTP"]        = true,
-    ["MaxSpeed"]         = 350,
-    ["JoinTeam"]         = "Pirates",
-    ["CollectFruit"]     = true,
-    ["AutoDarkbeard"]    = true,
-    ["TPJitter"]         = 0.55,
-    ["ChestIgnoreTime"]  = 0.5,
-}
-
-loadstring(game:HttpGet("https://raw.githubusercontent.com/dangbya1203-blip/NemoHub/refs/heads/main/nemo"))()
----////////////////////////////////////////////////////////////////////////////////////////////////////////---
-
-
-
----////////////////////////////////////////////////////////////////////////////////////////////////////////---
 getgenv().NemoRunning = true
 _G.NemoStop = function() getgenv().NemoRunning = false end
 
