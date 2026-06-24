@@ -1,293 +1,477 @@
+-- ============================================================
+--  PREMIUM ROBLOX ESP & AIMBOT (ULTIMATE EDITION)
+--  Features: Auto-Unload, Chams (Wallhack Highlight), 2D Corner Box,
+--            Tracers, Names/Distances, Healthbar, Minimap, FOV Circle,
+--            Wallcheck, Frame-Independent Prediction Aimbot, Invisible Hitbox.
+--  Strict Rules: 100% ASCII (Safe for all executors), No memory leaks.
+-- ============================================================
 
-getgenv().NemoRunning = true
-_G.NemoStop = function() getgenv().NemoRunning = false end
-
-local _cfg = getgenv().NemoConfig or {}
-
-local InstantTP         = _cfg.InstantTP    ~= nil and _cfg.InstantTP    or true
-local MaxSpeed          = _cfg.MaxSpeed     or 350
-local JoinTeam          = _cfg.JoinTeam     or "Pirates"
-local CollectFruit      = _cfg.CollectFruit ~= nil and _cfg.CollectFruit or true
-local AutoDarkbeard     = _cfg.AutoDarkbeard ~= nil and _cfg.AutoDarkbeard or false
-local TP_JITTER         = _cfg.TPJitter     or 0.55
-local CHEST_IGNORE_TIME = _cfg.ChestIgnoreTime or 0.5
-
-local Players           = game:GetService("Players")
-local TeleportService   = game:GetService("TeleportService")
-local HttpService       = game:GetService("HttpService")
-local RunService        = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService      = game:GetService("TweenService")
-local VirtualUser       = game:GetService("VirtualUser")
-local CoreGui           = game:GetService("CoreGui")
-
-local LocalPlayer = Players.LocalPlayer
-local RS          = ReplicatedStorage
-local PlaceId     = game.PlaceId
-
-local function hrand(mn, mx) return mn + math.random() * (mx - mn) end
-local function jitterCF(cf, r)
-    r = r or TP_JITTER
-    local a = math.random() * math.pi * 2
-    local d = math.random() * r
-    return cf * CFrame.new(math.cos(a) * d, 0, math.sin(a) * d)
-end
-local function isAlive(m) return m and m:FindFirstChild("Humanoid") and m.Humanoid.Health > 0 end
-
-_G.IsAttackingBoss = false
-
-local Pos = CFrame.new(0, 35, 0)
-local DARKBEARD_SPAWN_POS = CFrame.new(3776.81, 15.02, -3498.78)
-
-local StatFile = "NemoHub_Stats_" .. tostring(PlaceId) .. ".json"
-local UIStats  = { StartTime = os.time() }
-pcall(function()
-    if isfile and isfile(StatFile) then
-        local d = HttpService:JSONDecode(readfile(StatFile))
-        if type(d) == "table" then
-            UIStats = d
-            if not UIStats.StartTime or type(UIStats.StartTime) ~= "number" then UIStats.StartTime = os.time() end
-        end
-    end
-end)
-
-local VisitedServers = {}
-VisitedServers[game.JobId] = true
-
--- === CHEST TRACKING ===
-local ChestSet      = {}
-local ChestList     = {}
-local IgnoredChests = {}
-local FirstRun      = true
-local ChestDirty    = false
-
-local function addChest(obj)
-    if not ChestSet[obj] then ChestSet[obj] = true; table.insert(ChestList, obj); ChestDirty = true end
-end
-local function removeChest(obj)
-    ChestSet[obj] = nil; IgnoredChests[obj] = nil; ChestDirty = true
-end
-
-workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("Part") and obj.Name:find("Chest") then addChest(obj) end
-end)
-workspace.DescendantRemoving:Connect(function(obj)
-    if obj:IsA("Part") and obj.Name:find("Chest") then removeChest(obj) end
-end)
-
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(10)
-        local now = tick()
-        for chest, t in pairs(IgnoredChests) do
-            if not chest.Parent or (now - t > CHEST_IGNORE_TIME) then
-                IgnoredChests[chest] = nil
-            end
-        end
-    end
-end)
-
--- === AUTO REJOIN ON ERROR ===
-task.spawn(function()
+-- AUTO-UNLOAD PREVIOUS SESSION (Anti-Lag / Anti-Double Load)
+if _G.UltimateESP then
     pcall(function()
-        local overlay = CoreGui:WaitForChild("RobloxPromptGui"):WaitForChild("promptOverlay")
-        overlay.ChildAdded:Connect(function(child)
-            if child.Name == "ErrorPrompt" then task.wait(5); TeleportService:Teleport(PlaceId, LocalPlayer) end
-        end)
+        _G.UltimateESP.Unload()
     end)
-end)
-
--- === ANTI-AFK ===
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(hrand(20, 40))
-        pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new(math.random(200, 600), math.random(200, 500)))
-        end)
-    end
-end)
-
--- === AUTO HOLD FIST OF DARKNESS ===
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(1)
-        pcall(function()
-            if _G.IsAttackingBoss then return end
-
-            local char = LocalPlayer.Character
-            if not char then return end
-
-            local fist = LocalPlayer.Backpack:FindFirstChild("Fist of Darkness")
-                or char:FindFirstChild("Fist of Darkness")
-            if not fist then return end
-
-            local currentTool = char:FindFirstChildOfClass("Tool")
-            if currentTool and currentTool.Name == "Fist of Darkness" then return end
-
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then return end
-
-            local fistInBag = LocalPlayer.Backpack:FindFirstChild("Fist of Darkness")
-            if fistInBag then
-                hum:EquipTool(fistInBag)
-            end
-        end)
-    end
-end)
-
--- === UI ===
-local function CreateOverlayUI()
-    local existing = CoreGui:FindFirstChild("NemoHub_UI")
-    if existing then existing:Destroy() end
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "NemoHub_UI"
-    sg.Parent = (gethui and gethui()) or CoreGui
-    sg.IgnoreGuiInset = true
-    local overlay = Instance.new("Frame")
-    overlay.Size = UDim2.new(1,0,1,0)
-    overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
-    overlay.BackgroundTransparency = 0.55
-    overlay.Parent = sg
-    local frame = Instance.new("Frame")
-    frame.Name = "Frame"
-    frame.Size = UDim2.new(0,600,0,320)
-    frame.Position = UDim2.new(0.5,-300,0.5,-160)
-    frame.BackgroundTransparency = 1
-    frame.Parent = overlay
-    local ull = Instance.new("UIListLayout")
-    ull.Parent = frame
-    ull.SortOrder = Enum.SortOrder.LayoutOrder
-    ull.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    ull.VerticalAlignment = Enum.VerticalAlignment.Center
-    ull.Padding = UDim.new(0,10)
-    local logo = Instance.new("TextLabel")
-    logo.Size = UDim2.new(1,0,0,70)
-    logo.BackgroundTransparency = 1
-    logo.Font = Enum.Font.FredokaOne
-    logo.Text = "NemoHub"
-    logo.TextSize = 60
-    logo.TextColor3 = Color3.fromRGB(255,255,255)
-    logo.TextStrokeTransparency = 0
-    logo.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-    logo.Parent = frame
-    local function MkLabel(name, size, rich)
-        local l = Instance.new("TextLabel")
-        l.Name = name; l.Size = UDim2.new(1,0,0,size+10)
-        l.BackgroundTransparency = 1; l.Font = Enum.Font.GothamBold
-        l.TextSize = size; l.TextColor3 = Color3.fromRGB(255,255,255)
-        l.TextStrokeTransparency = 0; l.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-        l.RichText = rich or false; l.Parent = frame; return l
-    end
-    return MkLabel("Stats",20,true), MkLabel("Status",18), MkLabel("Time",18)
+    _G.UltimateESP = nil
 end
 
-local StatsLabel, StatusLabel, TimeLabel = CreateOverlayUI()
+local Config = {
+    Enabled          = true,
 
-local function GetStat(n)
-    if LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild(n) then return LocalPlayer.Data[n].Value end
-    if LocalPlayer:FindFirstChild("leaderstats") and LocalPlayer.leaderstats:FindFirstChild(n) then return LocalPlayer.leaderstats[n].Value end
-    return 0
+    -- [ESP VISUALS]
+    CornerBox        = true,
+    CornerBoxColor   = Color3.fromRGB(255, 50, 50),
+    CornerBoxThick   = 1.5,
+    CornerBoxLen     = 0.25,
+
+    Tracer           = true,
+    TracerColor      = Color3.fromRGB(255, 50, 50),
+    TracerThick      = 1,
+    TracerOrigin     = "Bottom", -- "Bottom" | "Center" | "Top"
+
+    -- Chams / Highlight (Wallhack glow effect)
+    Chams            = true,
+    ChamsFillColor   = Color3.fromRGB(255, 50, 50),
+    ChamsOutlineColor= Color3.fromRGB(255, 255, 255),
+    ChamsFillTrans   = 0.5,
+    ChamsOutlineTrans= 0.2,
+
+    ShowName         = true,
+    NameColor        = Color3.fromRGB(255, 255, 255),
+    NameSize         = 13,
+
+    ShowDist         = true,
+    DistColor        = Color3.fromRGB(180, 180, 180),
+    DistSize         = 11,
+
+    HealthBar        = true,
+    HealthBarWidth   = 3,
+
+    TeamCheck        = false,
+    MaxDist          = 1500,
+
+    -- [TOP-DOWN MINIMAP]
+    TopDown          = true,
+    TopDownColor     = Color3.fromRGB(255, 80, 80),
+
+    -- [AIMBOT & PREDICTION]
+    Aimbot           = true,
+    AimbotKey        = Enum.UserInputType.MouseButton2, -- Right Click
+    AimbotSmooth     = 0.15, -- 0.05 (very smooth) to 1.0 (instant lock)
+    AimbotPart       = "Head", -- "Head" | "HumanoidRootPart"
+    
+    AimbotFOV        = true,
+    AimbotFOVRadius  = 120,
+    AimbotFOVColor   = Color3.fromRGB(255, 255, 255),
+    AimbotFOVThick   = 1,
+    AimbotFOVFilled  = false,
+
+    WallCheck        = true, -- Filter out players behind walls
+    AimbotPrediction = 0.05, -- Factor to predict velocity movement (try 0.03 - 0.1)
+
+    HitboxExpand     = true,
+    HitboxSize       = 12, -- Size of target's hitbox
+    HitboxPartToSize = "HumanoidRootPart", -- "HumanoidRootPart" (most games) or "Head" (shooters)
+    HitboxTrans      = 1.0, -- Transparency (1 = fully invisible, no box block)
+    Rainbow          = false,
+    SilentAim        = false,
+    SilentAimMethod  = "Raycast", -- "Raycast" | "FindPartOnRay" | "FindPartOnRayWithWhitelist" | "FindPartOnRayWithIgnoreList" | "Mouse.Hit/Target"
+    SilentAimHitChance = 100,
+}
+
+local MapCfg = {
+    MapSize    = 180,
+    WorldRange = 400,
+    PosX       = 20,
+    PosY       = 20,
+    BgColor    = Color3.fromRGB(8, 8, 18),
+    BgTrans    = 0.45,
+    BgBorder   = Color3.fromRGB(90, 90, 140),
+    SelfColor  = Color3.fromRGB(50, 210, 255),
+    DotRadius  = 5,
+}
+
+-- Services
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+
+local ESPObjects    = {}
+local MapDots       = {}
+local MapUI         = {}
+local FOVCircle     = nil
+local currentTarget = nil
+
+-- Weak table to safely track altered Hitbox properties
+local originalProperties = {}
+setmetatable(originalProperties, { __mode = "k" })
+
+-- Mobile & GUI support
+local MobileUIObj   = {}
+local isMobileAimbotPressed = false
+local uiConnections = {}
+
+-- ===================== UTILS =====================
+local function getRootPart(char)
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
-local function GetRace()
-    if LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Race") then return tostring(LocalPlayer.Data.Race.Value) end
-    return "Unknown"
+
+local function getHumanoid(char)
+    return char and char:FindFirstChildOfClass("Humanoid")
 end
-local function FormatNum(n)
-    if not n then return "0" end
-    local s = tostring(n)
-    while true do local k; s,k = string.gsub(s,"^(-?%d+)(%d%d%d)","%1,%2"); if k==0 then break end end
+
+local function isTeammate(player)
+    if not Config.TeamCheck then return false end
+    local lp = Players.LocalPlayer
+    return lp and lp.Team ~= nil and player.Team == lp.Team
+end
+
+-- Line of Sight Raycast check
+local function isVisible(targetPart, targetChar)
+    local camera = workspace.CurrentCamera
+    if not camera then return false end
+
+    local origin = camera.CFrame.Position
+    local destination = targetPart.Position
+    local direction = destination - origin
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+
+    local excludeList = {}
+    local lp = Players.LocalPlayer
+    if lp and lp.Character then
+        table.insert(excludeList, lp.Character)
+    end
+    if targetChar then
+        table.insert(excludeList, targetChar)
+    end
+    params.FilterDescendantsInstances = excludeList
+
+    local result = workspace:Raycast(origin, direction, params)
+    return result == nil
+end
+
+local function getBoundingBox(char)
+    local root = getRootPart(char)
+    if not root then return nil end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    -- Fast pre-check: if root is not in viewport or behind the camera, skip calculations
+    local _, inViewport = camera:WorldToViewportPoint(root.Position)
+    if not inViewport then return nil end
+
+    local cf = root.CFrame
+    local width  = 4
+    local height = 5.5
+
+    local corners = {
+        cf * CFrame.new(-width/2,  height/2, 0),
+        cf * CFrame.new( width/2,  height/2, 0),
+        cf * CFrame.new(-width/2, -height/2, 0),
+        cf * CFrame.new( width/2, -height/2, 0),
+    }
+
+    local minX, minY = math.huge, math.huge
+    local maxX, maxY = -math.huge, -math.huge
+    local visible = false
+
+    for i = 1, 4 do
+        local screenPos, inViewport = camera:WorldToViewportPoint(corners[i].Position)
+        if screenPos.Z > 0 then
+            visible = true
+            if screenPos.X < minX then minX = screenPos.X end
+            if screenPos.Y < minY then minY = screenPos.Y end
+            if screenPos.X > maxX then maxX = screenPos.X end
+            if screenPos.Y > maxY then maxY = screenPos.Y end
+        end
+    end
+
+    if not visible then return nil end
+
+    return {
+        x  = minX,
+        y  = minY,
+        w  = maxX - minX,
+        h  = maxY - minY,
+        cx = (minX + maxX) / 2,
+        cy = (minY + maxY) / 2,
+    }
+end
+
+-- ===================== DRAWING INSTANTIATORS =====================
+local function newLine()
+    local l = Drawing.new("Line")
+    l.Visible   = false
+    l.ZIndex    = 5
+    l.Thickness = 1
+    l.Color     = Color3.new(1, 0, 0)
+    return l
+end
+
+local function newCircle()
+    local c = Drawing.new("Circle")
+    c.Visible = false
+    c.Filled  = true
+    c.ZIndex  = 5
+    c.Radius  = 5
+    return c
+end
+
+local function newSquare()
+    local s = Drawing.new("Square")
+    s.Visible = false
+    s.Filled  = false
+    s.ZIndex  = 4
     return s
 end
-local function GetDroppedFruits()
-    local t = {}
-    for _, v in ipairs(workspace:GetChildren()) do
-        if string.find(string.lower(v.Name),"fruit") and v:FindFirstChild("Handle") then table.insert(t,v) end
-    end
+
+local function newText()
+    local t = Drawing.new("Text")
+    t.Visible  = false
+    t.ZIndex   = 6
+    t.Center   = true
+    t.Outline  = true
+    t.Size     = 13
+    t.Color    = Color3.new(1, 1, 1)
     return t
 end
 
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(1)
-        local ft = "None"
-        local df = GetDroppedFruits()
-        if #df > 0 then ft = df[1]:GetAttribute("OriginalName") or string.gsub(df[1].Name," Fruit","") end
-        pcall(function()
-            StatsLabel.Text = string.format(
-                '<font color="rgb(255,50,50)">Level:</font> %s | <font color="rgb(255,255,0)">Beli:</font> %s | <font color="rgb(255,50,255)">Frags:</font> %s\n<font color="rgb(100,255,100)">Race:</font> %s | <font color="rgb(255,165,0)">Fruit:</font> %s',
-                tostring(GetStat("Level")), FormatNum(GetStat("Beli")), FormatNum(GetStat("Fragments")), tostring(GetRace()), tostring(ft)
-            )
-        end)
-        local e = os.time() - UIStats.StartTime
-        TimeLabel.Text = string.format("Time: %dd %dh %dm %ds",
-            math.floor(e/86400), math.floor((e%86400)/3600), math.floor((e%3600)/60), e%60)
-        pcall(function() if writefile then writefile(StatFile, HttpService:JSONEncode(UIStats)) end end)
+-- ===================== RENDER UPDATES =====================
+local function updateCornerBox(lines, box, color, thick, ratio)
+    if not box then
+        for i = 1, 8 do lines[i].Visible = false end
+        return
     end
-end)
+    local x, y, w, h = box.x, box.y, box.w, box.h
+    local lx = w * ratio
+    local ly = h * ratio
+    local corners = {
+        {Vector2.new(x,   y),   Vector2.new(x+lx,   y),   Vector2.new(x,   y+ly)  },
+        {Vector2.new(x+w, y),   Vector2.new(x+w-lx, y),   Vector2.new(x+w, y+ly)  },
+        {Vector2.new(x,   y+h), Vector2.new(x+lx,   y+h), Vector2.new(x,   y+h-ly)},
+        {Vector2.new(x+w, y+h), Vector2.new(x+w-lx, y+h), Vector2.new(x+w, y+h-ly)},
+    }
+    for i, c in ipairs(corners) do
+        local hl = lines[(i-1)*2 + 1]
+        local vl = lines[(i-1)*2 + 2]
+        hl.From = c[1]; hl.To = c[2]; hl.Color = color; hl.Thickness = thick; hl.Visible = true
+        vl.From = c[1]; vl.To = c[3]; vl.Color = color; vl.Thickness = thick; vl.Visible = true
+    end
+end
 
--- === REMOTE CACHE ===
-local CommF_ = nil
-task.spawn(function()
-    pcall(function()
-        local rem = RS:WaitForChild("Remotes", 10)
-        CommF_ = rem and rem:WaitForChild("CommF_", 10)
-    end)
-end)
+local function updateHealthBar(bg, fg, box, hp, maxHp)
+    if not box then
+        bg.Visible = false
+        fg.Visible = false
+        return
+    end
+    local bx = box.x - 5
+    local ratio = math.clamp(hp / math.max(maxHp, 1), 0, 1)
+    bg.From      = Vector2.new(bx, box.y)
+    bg.To        = Vector2.new(bx, box.y + box.h)
+    bg.Color     = Color3.fromRGB(0, 0, 0)
+    bg.Thickness = Config.HealthBarWidth + 2
+    bg.Visible   = true
+    fg.From      = Vector2.new(bx, box.y + box.h)
+    fg.To        = Vector2.new(bx, box.y + box.h - box.h * ratio)
+    fg.Color     = Color3.fromRGB(math.floor(255*(1-ratio)), math.floor(255*ratio), 40)
+    fg.Thickness = Config.HealthBarWidth
+    fg.Visible   = true
+end
 
--- === COMBAT ===
-local RegisterAttack, RegisterHit, hitRemote, hitRemoteId, CachedSeed = nil, nil, nil, nil, 0
+local function getTracerOrigin()
+    local camera = workspace.CurrentCamera
+    local vp = camera and camera.ViewportSize or Vector2.new(800, 600)
+    if Config.TracerOrigin == "Top"    then return Vector2.new(vp.X/2, 0)      end
+    if Config.TracerOrigin == "Center" then return Vector2.new(vp.X/2, vp.Y/2) end
+    return Vector2.new(vp.X/2, vp.Y)
+end
 
-task.spawn(function()
-    pcall(function()
-        local Modules = RS:WaitForChild("Modules",5); if not Modules then return end
-        local Net = Modules:WaitForChild("Net",5); if not Net then return end
-        RegisterAttack = Net:WaitForChild("RE/RegisterAttack",5)
-        RegisterHit    = Net:WaitForChild("RE/RegisterHit",5)
-        local function scanF(folder)
-            if not folder then return end
-            for _, c in ipairs(folder:GetChildren()) do
-                if c:IsA("RemoteEvent") and c:GetAttribute("Id") then hitRemote = c; hitRemoteId = c:GetAttribute("Id") end
+local function updateTracer(line, box, color, thick)
+    if not box then line.Visible = false; return end
+    line.From      = getTracerOrigin()
+    line.To        = Vector2.new(box.cx, box.y + box.h)
+    line.Color     = color
+    line.Thickness = thick
+    line.Visible   = true
+end
+
+-- ===================== MINIMAP =====================
+local function initMinimap()
+    local bg = newSquare()
+    bg.Filled       = true
+    bg.Color        = MapCfg.BgColor
+    bg.Transparency = MapCfg.BgTrans
+    bg.Position     = Vector2.new(MapCfg.PosX, MapCfg.PosY)
+    bg.Size         = Vector2.new(MapCfg.MapSize, MapCfg.MapSize)
+    bg.Visible      = true
+
+    local border = newSquare()
+    border.Filled    = false
+    border.Color     = MapCfg.BgBorder
+    border.Thickness = 1.5
+    border.Position  = Vector2.new(MapCfg.PosX, MapCfg.PosY)
+    border.Size      = Vector2.new(MapCfg.MapSize, MapCfg.MapSize)
+    border.Visible   = true
+    border.ZIndex    = 5
+
+    local selfDot = newCircle()
+    selfDot.Color   = MapCfg.SelfColor
+    selfDot.Radius  = MapCfg.DotRadius
+    selfDot.Visible = true
+    selfDot.ZIndex  = 7
+
+    MapUI.bg      = bg
+    MapUI.border  = border
+    MapUI.selfDot = selfDot
+end
+
+local function worldToMap(worldPos)
+    local lp = Players.LocalPlayer
+    local lChar = lp and lp.Character
+    if not lChar then return nil end
+    local lRoot = getRootPart(lChar)
+    if not lRoot then return nil end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    local off   = worldPos - lRoot.Position
+    local half  = MapCfg.MapSize / 2
+    local scale = half / MapCfg.WorldRange
+    local look  = camera.CFrame.LookVector
+    local angle = math.atan2(look.X, look.Z)
+    local ca    = math.cos(-angle)
+    local sa    = math.sin(-angle)
+    local rx    = off.X * ca - off.Z * sa
+    local rz    = off.X * sa + off.Z * ca
+    local sx    = math.clamp(MapCfg.PosX + half + rx * scale, MapCfg.PosX + 2, MapCfg.PosX + MapCfg.MapSize - 2)
+    local sy    = math.clamp(MapCfg.PosY + half + rz * scale, MapCfg.PosY + 2, MapCfg.PosY + MapCfg.MapSize - 2)
+    return Vector2.new(sx, sy)
+end
+
+local function updateMinimap()
+    local show = Config.TopDown and Config.Enabled
+    MapUI.bg.Visible      = show
+    MapUI.border.Visible  = show
+    MapUI.selfDot.Visible = show
+    if not show then
+        for _, dot in pairs(MapDots) do dot.Visible = false end
+        return
+    end
+    MapUI.selfDot.Position = Vector2.new(MapCfg.PosX + MapCfg.MapSize/2, MapCfg.PosY + MapCfg.MapSize/2)
+    for player, dot in pairs(MapDots) do
+        if not player or not player.Parent then
+            dot:Remove()
+            MapDots[player] = nil
+        elseif isTeammate(player) then
+            dot.Visible = false
+        else
+            local char = player.Character
+            local root = char and getRootPart(char)
+            if root then
+                local mp = worldToMap(root.Position)
+                if mp then
+                    dot.Position = mp
+                    dot.Color    = Config.TopDownColor
+                    dot.Visible  = true
+                else
+                    dot.Visible = false
+                end
+            else
+                dot.Visible = false
             end
-            folder.ChildAdded:Connect(function(c)
-                if c:IsA("RemoteEvent") and c:GetAttribute("Id") then hitRemote = c; hitRemoteId = c:GetAttribute("Id") end
-            end)
         end
-        for _, nm in ipairs({"Util","Common","Remotes","Assets","FX"}) do
-            pcall(function() scanF(RS:WaitForChild(nm,3)) end)
-        end
-        while getgenv().NemoRunning do
-            task.wait(2)
-            pcall(function() if Net.seed then CachedSeed = Net.seed:InvokeServer() or 0 end end)
-        end
-    end)
-end)
+    end
+end
 
-local _targets = {}
-local _pool = {}
-for i = 1, 300 do _pool[i] = {nil,nil} end
+-- ===================== CHAMS (WALLHACK HIGHLIGHT) =====================
+local function applyChams(char, obj)
+    if not Config.Chams then
+        if obj.highlight then
+            obj.highlight:Destroy()
+            obj.highlight = nil
+        end
+        return
+    end
 
-local function executeFastAttack()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not char or not root then return end
-    local tool = char:FindFirstChildOfClass("Tool")
-    if not tool or (tool.ToolTip ~= "Melee" and tool.ToolTip ~= "Sword") then return end
-    if not RegisterAttack or not RegisterHit then return end
-    local count, firstHead = 0, nil
-    for _, folder in ipairs({workspace:FindFirstChild("Enemies"), workspace:FindFirstChild("Characters")}) do
-        if folder then
-            for _, mob in ipairs(folder:GetChildren()) do
-                if mob ~= char then
-                    local hrp  = mob:FindFirstChild("HumanoidRootPart")
-                    local head = mob:FindFirstChild("Head")
-                    if hrp and head and isAlive(mob) and (hrp.Position - root.Position).Magnitude <= 150 then
-                        if not firstHead then firstHead = head end
-                        for _, part in ipairs(mob:GetChildren()) do
-                            if part:IsA("BasePart") then
-                                count = count + 1
-                                local e = _pool[count] or {nil,nil}
-                                _pool[count] = e; e[1] = mob; e[2] = part
+    if not obj.highlight or obj.highlight.Parent ~= char then
+        if obj.highlight then obj.highlight:Destroy() end
+        local hl = Instance.new("Highlight")
+        hl.Name = "PremiumCham"
+        hl.Adornee = char
+        hl.Parent = char
+        obj.highlight = hl
+    end
+
+    local hl = obj.highlight
+    hl.FillColor = Config.ChamsFillColor
+    hl.OutlineColor = Config.ChamsOutlineColor
+    hl.FillTransparency = Config.ChamsFillTrans
+    hl.OutlineTransparency = Config.ChamsOutlineTrans
+    hl.Enabled = Config.Enabled
+end
+
+-- ===================== AIMBOT ENGINE =====================
+local function isKeyHeld(key)
+    if UserInputService.TouchEnabled and isMobileAimbotPressed then
+        return true
+    end
+    if key == Enum.UserInputType.MouseButton1 or key == Enum.UserInputType.MouseButton2 or key == Enum.UserInputType.MouseButton3 then
+        return UserInputService:IsMouseButtonPressed(key)
+    else
+        return UserInputService:IsKeyDown(key)
+    end
+end
+
+local function getClosestPlayer()
+    local lp = Players.LocalPlayer
+    local lChar = lp and lp.Character
+    local lRoot = lChar and getRootPart(lChar)
+    local camera = workspace.CurrentCamera
+    if not lp or not lRoot or not camera then return nil end
+
+    local target = nil
+    local minDistance3D = math.huge
+    local fovRadius = Config.AimbotFOVRadius
+
+    local vp = camera.ViewportSize
+    local screenCenter = Vector2.new(vp.X / 2, vp.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= lp and not isTeammate(player) then
+            local char = player.Character
+            if char then
+                local hum = getHumanoid(char)
+                if hum and hum.Health > 0 then
+                    local targetPart = char:FindFirstChild(Config.AimbotPart)
+                    if targetPart then
+                        local screenPos, inViewport = camera:WorldToViewportPoint(targetPart.Position)
+                        if screenPos.Z > 0 then
+                            local inFOV = true
+                            if Config.AimbotFOV then
+                                local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                                if distFromCenter > fovRadius then
+                                    inFOV = false
+                                end
+                            end
+
+                            if inFOV then
+                                local visible = true
+                                if Config.WallCheck then
+                                    visible = isVisible(targetPart, char)
+                                end
+
+                                if visible then
+                                    local dist3D = (targetPart.Position - lRoot.Position).Magnitude
+                                    if dist3D < minDistance3D then
+                                        minDistance3D = dist3D
+                                        target = targetPart
+                                    end
+                                end
                             end
                         end
                     end
@@ -295,644 +479,1117 @@ local function executeFastAttack()
             end
         end
     end
-    if count == 0 or not firstHead then return end
-    table.clear(_targets)
-    for i = 1, count do _targets[i] = _pool[i] end
-    pcall(function()
-        RegisterAttack:FireServer(0.0000000000001)
-        RegisterHit:FireServer(firstHead, _targets)
-        if hitRemote and hitRemoteId and CachedSeed ~= 0 then
-            local enc = string.gsub("RE/RegisterHit",".",function(c)
-                return string.char(bit32.bxor(string.byte(c), math.floor(workspace:GetServerTimeNow()/10%10)+1))
-            end)
-            cloneref(hitRemote):FireServer(enc, bit32.bxor(hitRemoteId+909090, CachedSeed*2), firstHead, _targets)
-        end
-    end)
+    return target
 end
 
--- fast attack loop
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(0.05)
-        if not _G.IsAttackingBoss then continue end
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then return end
-            local cur = char:FindFirstChildOfClass("Tool")
-            if not cur or (cur.ToolTip ~= "Melee" and cur.ToolTip ~= "Sword") then
-                for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                    if t:IsA("Tool") and t.ToolTip == "Melee" then hum:EquipTool(t); return end
-                end
-                for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                    if t:IsA("Tool") and t.ToolTip == "Sword" then hum:EquipTool(t); return end
-                end
-            end
-        end)
-        pcall(executeFastAttack)
+-- Frame-Rate Independent smoothing formula
+local function runAimbot(dt)
+    if not Config.Aimbot or not isKeyHeld(Config.AimbotKey) then
+        currentTarget = nil
+        return
     end
-end)
 
--- anti-stun loop
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(0.1)
-        if not _G.IsAttackingBoss then continue end
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then return end
-            local Stun = char:FindFirstChild("Stun"); local Busy = char:FindFirstChild("Busy")
-            if Stun and Stun.Value ~= 0 then Stun.Value = 0 end
-            if Busy and Busy.Value then Busy.Value = false end
-            if hum:GetState() == Enum.HumanoidStateType.Ragdoll or hum:GetState() == Enum.HumanoidStateType.FallingDown then
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            end
-            if hum.PlatformStand then hum.PlatformStand = false end
-            if hum.Sit then hum.Sit = false end
-        end)
-    end
-end)
+    local camera = workspace.CurrentCamera
+    if not camera then return end
 
--- attackMelee upvalue bypass
-task.spawn(function()
-    pcall(function()
-        repeat task.wait(0.5) until getgc or not getgenv().NemoRunning
-        local WeaponData = require(RS:WaitForChild("Modules"):WaitForChild("WeaponData"))
-        if not getgenv().attackMelee then
-            for _, v in next, getgc(true) do
-                if typeof(v) == "function" then
-                    local info = debug.getinfo and debug.getinfo(v)
-                    if info and info.name == "attackMelee" then getgenv().attackMelee = v; break end
+    local lp = Players.LocalPlayer
+    local lChar = lp and lp.Character
+    local lRoot = lChar and getRootPart(lChar)
+    if not lRoot then return end
+
+    local targetValid = false
+    if currentTarget and currentTarget.Parent and currentTarget.Parent:FindFirstChildOfClass("Humanoid") then
+        local hum = currentTarget.Parent:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            local screenPos, inViewport = camera:WorldToViewportPoint(currentTarget.Position)
+            if screenPos.Z > 0 then
+                local inFOV = true
+                if Config.AimbotFOV then
+                    local vp = camera.ViewportSize
+                    local screenCenter = Vector2.new(vp.X / 2, vp.Y / 2)
+                    local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                    if distFromCenter > Config.AimbotFOVRadius then
+                        inFOV = false
+                    end
+                end
+
+                local visible = true
+                if Config.WallCheck then
+                    visible = isVisible(currentTarget, currentTarget.Parent)
+                end
+
+                if inFOV and visible then
+                    targetValid = true
                 end
             end
         end
-        if not getgenv().attackMelee then return end
-        while getgenv().NemoRunning do
-            task.wait(0.02)
+    end
+
+    if not targetValid then
+        currentTarget = getClosestPlayer()
+    end
+
+    if currentTarget then
+        local currentCF = camera.CFrame
+        local targetPos = currentTarget.Position
+
+        if Config.AimbotPrediction > 0 then
+            local velocity = currentTarget.AssemblyLinearVelocity or currentTarget.Velocity or Vector3.new(0, 0, 0)
+            targetPos = targetPos + (velocity * Config.AimbotPrediction)
+        end
+
+        local targetCF = CFrame.new(currentCF.Position, targetPos)
+
+        if Config.AimbotSmooth > 0 then
+            -- Compensate smoothing for 60Hz/144Hz/240Hz monitors to keep speed consistent
+            local smoothFactor = math.clamp(Config.AimbotSmooth * (dt * 60), 0.001, 1)
+            camera.CFrame = currentCF:Lerp(targetCF, smoothFactor)
+        else
+            camera.CFrame = targetCF
+        end
+    end
+end
+
+-- ===================== HITBOX EXPANDER =====================
+local function expandHitboxes()
+    if not Config.HitboxExpand or not Config.Enabled then
+        restoreHitboxes()
+        return
+    end
+
+    local lp = Players.LocalPlayer
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= lp and not isTeammate(player) then
+            local char = player.Character
+            if char then
+                local part = char:FindFirstChild(Config.HitboxPartToSize)
+                if part and part:IsA("BasePart") then
+                    if not originalProperties[part] then
+                        originalProperties[part] = {
+                            Size = part.Size,
+                            Transparency = part.Transparency,
+                            CanCollide = part.CanCollide
+                        }
+                    end
+                    part.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+                    part.Transparency = Config.HitboxTrans
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end
+
+local function restoreHitboxes()
+    for part, props in pairs(originalProperties) do
+        if part and part.Parent then
+            part.Size = props.Size
+            part.Transparency = props.Transparency
+            part.CanCollide = props.CanCollide
+        end
+    end
+    originalProperties = {}
+end
+
+-- ===================== ESP CREATOR / DESTROYER =====================
+local function createESP(player)
+    local lines = {}
+    for i = 1, 8 do lines[i] = newLine() end
+    ESPObjects[player] = {
+        cornerLines = lines,
+        tracer      = newLine(),
+        hpBg        = newLine(),
+        hpFg        = newLine(),
+        nameText    = newText(),
+        distText    = newText(),
+        highlight   = nil,
+    }
+    local dot = newCircle()
+    dot.Color   = Config.TopDownColor
+    dot.Radius  = MapCfg.DotRadius
+    dot.ZIndex  = 6
+    MapDots[player] = dot
+end
+
+local function hideESP(obj)
+    for i = 1, 8 do obj.cornerLines[i].Visible = false end
+    obj.tracer.Visible   = false
+    obj.hpBg.Visible     = false
+    obj.hpFg.Visible     = false
+    obj.nameText.Visible = false
+    obj.distText.Visible = false
+    if obj.highlight then
+        obj.highlight.Enabled = false
+    end
+end
+
+local function removeESP(player)
+    local obj = ESPObjects[player]
+    if obj then
+        for i = 1, 8 do obj.cornerLines[i]:Remove() end
+        obj.tracer:Remove()
+        obj.hpBg:Remove()
+        obj.hpFg:Remove()
+        obj.nameText:Remove()
+        obj.distText:Remove()
+        if obj.highlight then obj.highlight:Destroy() end
+        ESPObjects[player] = nil
+    end
+    local dot = MapDots[player]
+    if dot then dot:Remove(); MapDots[player] = nil end
+end
+
+-- ===================== UPDATE PER PLAYER =====================
+local function updatePlayer(player, obj)
+    if isTeammate(player) then hideESP(obj); return end
+
+    local char = player.Character
+    if not char then hideESP(obj); return end
+
+    local root = getRootPart(char)
+    if not root then hideESP(obj); return end
+
+    local lp = Players.LocalPlayer
+    local lChar = lp and lp.Character
+    local lRoot = lChar and getRootPart(lChar)
+    local dist  = lRoot and (root.Position - lRoot.Position).Magnitude or 0
+    if dist > Config.MaxDist then hideESP(obj); return end
+
+    local hp, maxHp = 100, 100
+    local hum = getHumanoid(char)
+    if hum then hp = hum.Health; maxHp = hum.MaxHealth end
+
+    -- Render Chams (Wallhack Highlight Glow)
+    applyChams(char, obj)
+
+    -- Render 2D Bounding Box
+    local box = getBoundingBox(char)
+
+    if Config.CornerBox then
+        updateCornerBox(obj.cornerLines, box, Config.CornerBoxColor, Config.CornerBoxThick, Config.CornerBoxLen)
+    else
+        for i = 1, 8 do obj.cornerLines[i].Visible = false end
+    end
+
+    if Config.HealthBar then
+        updateHealthBar(obj.hpBg, obj.hpFg, box, hp, maxHp)
+    else
+        obj.hpBg.Visible = false; obj.hpFg.Visible = false
+    end
+
+    if Config.Tracer then
+        updateTracer(obj.tracer, box, Config.TracerColor, Config.TracerThick)
+    else
+        obj.tracer.Visible = false
+    end
+
+    if Config.ShowName and box then
+        obj.nameText.Text     = player.DisplayName
+        obj.nameText.Position = Vector2.new(box.cx, box.y - 18)
+        obj.nameText.Color    = Config.NameColor
+        obj.nameText.Size     = Config.NameSize
+        obj.nameText.Visible  = true
+    else
+        obj.nameText.Visible = false
+    end
+
+    if Config.ShowDist and box then
+        obj.distText.Text     = "[" .. math.floor(dist) .. "m]"
+        obj.distText.Position = Vector2.new(box.cx, box.y + box.h + 3)
+        obj.distText.Color    = Config.DistColor
+        obj.distText.Size     = Config.DistSize
+        obj.distText.Visible  = true
+    else
+        obj.distText.Visible = false
+    end
+end
+
+-- ===================== CORE RENDER LOOP =====================
+local function onRenderStep(dt)
+    -- Update FOV circle
+    local showFOV = Config.Enabled and Config.Aimbot and Config.AimbotFOV
+    FOVCircle.Visible = showFOV
+    if showFOV then
+        local camera = workspace.CurrentCamera
+        if camera then
+            local vp = camera.ViewportSize
+            FOVCircle.Position  = Vector2.new(vp.X / 2, vp.Y / 2)
+            FOVCircle.Radius    = Config.AimbotFOVRadius
+            FOVCircle.Color     = Config.AimbotFOVColor
+            FOVCircle.Thickness = Config.AimbotFOVThick
+            FOVCircle.Filled    = Config.AimbotFOVFilled
+        end
+    end
+
+    if not Config.Enabled then
+        for _, obj in pairs(ESPObjects) do hideESP(obj) end
+        restoreHitboxes()
+        updateMinimap()
+        return
+    end
+
+    -- Run Rainbow mode (RGB Color Cycle)
+    if Config.Rainbow then
+        local hue = (tick() % 5) / 5
+        local color = Color3.fromHSV(hue, 0.8, 1)
+        Config.CornerBoxColor = color
+        Config.TracerColor = color
+        Config.ChamsFillColor = color
+        Config.TopDownColor = color
+        Config.AimbotFOVColor = color
+    end
+
+    -- Run Aimbot
+    local okAim, errAim = pcall(runAimbot, dt)
+    if not okAim then
+        warn("[Aimbot Error] " .. tostring(errAim))
+    end
+
+    -- Find Silent Aim target if aimbot key is not held
+    if Config.SilentAim and not isKeyHeld(Config.AimbotKey) then
+        currentTarget = getClosestPlayer()
+    end
+
+    -- Run Hitbox Expander
+    local okHitbox, errHitbox = pcall(expandHitboxes)
+    if not okHitbox then
+        warn("[Hitbox Error] " .. tostring(errHitbox))
+    end
+
+    -- Update ESP Visuals
+    for player, obj in pairs(ESPObjects) do
+        if player and player.Parent then
+            local ok, err = pcall(updatePlayer, player, obj)
+            if not ok then 
+                warn("[ESP Error] " .. tostring(err))
+                hideESP(obj) 
+            end
+        else
+            hideESP(obj)
+        end
+    end
+    updateMinimap()
+end
+
+-- ===================== PLAYER EVENTS =====================
+local function onPlayerAdded(player)
+    if player == Players.LocalPlayer then return end
+    createESP(player)
+end
+
+local function onPlayerRemoving(player)
+    removeESP(player)
+end
+
+-- ===================== GLASSMORPHIC SETTINGS GUI =====================
+local function getGuiParent()
+    local parent
+    if gethui then
+        pcall(function() parent = gethui() end)
+    end
+    if not parent then
+        pcall(function() parent = game:GetService("CoreGui") end)
+    end
+    if not parent then
+        local lp = Players.LocalPlayer
+        if lp then
+            parent = lp:FindFirstChildOfClass("PlayerGui") or lp:WaitForChild("PlayerGui", 5)
+        end
+    end
+    return parent
+end
+
+local function makeDraggable(frame, dragHandle)
+    local dragToggle = nil
+    local dragInput = nil
+    local dragStart = nil
+    local dragStartPos = nil
+
+    local function updateInput(input)
+        local delta = input.Position - dragStart
+        local position = UDim2.new(dragStartPos.X.Scale, dragStartPos.X.Offset + delta.X, dragStartPos.Y.Scale, dragStartPos.Y.Offset + delta.Y)
+        TweenService:Create(frame, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = position}):Play()
+    end
+
+    local handle = dragHandle or frame
+    local conn1 = handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragToggle = true
+            dragStart = input.Position
+            dragStartPos = frame.Position
+        end
+    end)
+    table.insert(uiConnections, conn1)
+
+    local conn2 = handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    table.insert(uiConnections, conn2)
+
+    local conn3 = UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragToggle = false
+        end
+    end)
+    table.insert(uiConnections, conn3)
+
+    local conn4 = UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragToggle then
+            updateInput(input)
+        end
+    end)
+    table.insert(uiConnections, conn4)
+end
+
+local function createMobileUI()
+    local HttpService = game:GetService("HttpService")
+    local Debris = game:GetService("Debris")
+    local SoundService = game:GetService("SoundService")
+    
+    local configFileName = "UltimateESP_Config.json"
+
+    local function saveConfig()
+        if writefile then
             pcall(function()
-                if not _G.IsAttackingBoss then return end
-                local char2 = LocalPlayer.Character
-                local tool2 = char2 and char2:FindFirstChildOfClass("Tool"); if not tool2 then return end
-                local WName = tool2:GetAttribute("WeaponName"); if not WName or not WeaponData[WName] then return end
-                for i, uv in next, getupvalues(getgenv().attackMelee) do
-                    if typeof(uv) == "number" then setupvalue(getgenv().attackMelee, i, 0) end
-                    if typeof(uv) == "boolean" then setupvalue(getgenv().attackMelee, i, false) end
+                local data = {}
+                for k, v in pairs(Config) do
+                    if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+                        data[k] = v
+                    end
                 end
-                WeaponData[WName].HitboxMagnitude = 120
-                getgenv().attackMelee()
+                writefile(configFileName, HttpService:JSONEncode(data))
             end)
         end
-    end)
-end)
-
--- === MOVEMENT ===
-local function getCharacter()
-    local char = LocalPlayer.Character
-    if not char then
-        local conn; local done = false
-        conn = LocalPlayer.CharacterAdded:Connect(function(c) char = c; done = true end)
-        local t = tick()
-        while not done and (tick() - t < 10) do task.wait(0.1) end
-        conn:Disconnect()
     end
-    if not char then return nil end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        local ok = pcall(function() char:WaitForChild("HumanoidRootPart", 5) end)
-        if not ok then return nil end
-    end
-    return char
-end
 
-local function toggleNoclip(on)
-    pcall(function()
-        local char = getCharacter()
-        if not char then return end
-        for _, v in ipairs(char:GetChildren()) do if v:IsA("Part") then v.CanCollide = not on end end
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then hum:SetStateEnabled(Enum.HumanoidStateType.Seated, not on) end
-    end)
-end
-
-local TWEEN_SPEED  = 300
-local _activeTween = nil
-
-local function _ensureBV(hrp)
-    if not hrp:FindFirstChild("BodyClip") then
-        local bv = Instance.new("BodyVelocity")
-        bv.Name = "BodyClip"; bv.Parent = hrp
-        bv.MaxForce = Vector3.new(100000,100000,100000); bv.Velocity = Vector3.zero
-    end
-end
-local function _removeBV(hrp)
-    local bp = hrp and hrp:FindFirstChild("BodyClip")
-    if bp then bp:Destroy() end
-end
-
-local function TweenPlayer(goalCF, ignoreStop)
-    local char = LocalPlayer.Character
-    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local dist = (hrp.Position - goalCF.Position).Magnitude
-    if dist < 1 then return end
-    if _activeTween and _activeTween.PlaybackState == Enum.PlaybackState.Playing then
-        _activeTween:Cancel()
-    end
-    toggleNoclip(true)
-    _ensureBV(hrp)
-    _activeTween = TweenService:Create(hrp, TweenInfo.new(dist/TWEEN_SPEED, Enum.EasingStyle.Linear), {CFrame=goalCF})
-    _activeTween:Play()
-    local done = false
-    _activeTween.Completed:Connect(function() done = true end)
-    while not done and (ignoreStop or getgenv().NemoRunning) do
-        task.wait(0.1)
-        local c2 = LocalPlayer.Character
-        local h2 = c2 and c2:FindFirstChild("HumanoidRootPart")
-        if not h2 or h2 ~= hrp then
-            pcall(function() _activeTween:Cancel() end)
-            done = true
+    local function loadConfig()
+        if readfile and isfile and isfile(configFileName) then
+            pcall(function()
+                local content = readfile(configFileName)
+                local data = HttpService:JSONDecode(content)
+                for k, v in pairs(data) do
+                    if Config[k] ~= nil then
+                        Config[k] = v
+                    end
+                end
+            end)
         end
     end
-    toggleNoclip(false)
-    _removeBV(hrp)
-end
 
-local function Teleport(Goal, Speed)
-    local char = getCharacter()
-    if not char then return end
-    local RootPart = char:FindFirstChild("HumanoidRootPart")
-    if not RootPart then return end
-    if InstantTP then RootPart.CFrame = Goal; return end
-    Speed = Speed or MaxSpeed
-    toggleNoclip(true)
-    pcall(function()
-        local Mag = (RootPart.Position - Goal.Position).Magnitude
-        while Mag > 1 and getgenv().NemoRunning do
-            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then break end
-            local Dir = (Goal.Position - RootPart.Position).unit
-            local Next = RootPart.Position + Dir * math.min(Speed * task.wait(), Mag)
-            if (Next - Goal.Position).Magnitude < 1 then RootPart.CFrame = Goal; break end
-            RootPart.CFrame = CFrame.new(Next)
-            Mag = (RootPart.Position - Goal.Position).Magnitude
-        end
-    end)
-    toggleNoclip(false)
-end
-
-local function GetBP(name)
-    return LocalPlayer.Backpack:FindFirstChild(name) or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(name))
-end
-
--- === INVENTORY ===
-local function StoreFruit()
-    local function Check(parent)
-        for _, item in ipairs(parent:GetChildren()) do
-            if item:FindFirstChild("EatRemote",true) or string.find(string.lower(item.Name),"fruit") then
-                local fn = item:GetAttribute("OriginalName") or string.gsub(item.Name," Fruit","")
-                pcall(function() RS.Remotes.CommF_:InvokeServer("StoreFruit", fn, item) end)
-            end
-        end
-    end
-    if LocalPlayer:FindFirstChild("Backpack") then Check(LocalPlayer.Backpack) end
-    if LocalPlayer.Character then Check(LocalPlayer.Character) end
-end
-
--- === AUTO TEAM ===
-local function AutoSelectTeam()
-    local function hasTeam()
-        if LocalPlayer:FindFirstChild("Main") then return true end
-        local t = LocalPlayer.Team
-        return t ~= nil and t.Name ~= "Neutral" and t.Name ~= ""
-    end
-    if hasTeam() then return end
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local function trySelect()
-        pcall(function() RS.Remotes.CommF_:InvokeServer("SetTeam", JoinTeam) end)
-        pcall(function() RS.Remotes.CommF_:InvokeServer("SelectTeam", JoinTeam) end)
+    local function playSound(soundId)
         pcall(function()
-            local mm = PlayerGui:FindFirstChild("Main (minimal)")
-            if not mm then return end
-            local ct = mm:FindFirstChild("ChooseTeam", true)
-            if not ct or not ct.Visible then return end
-            local btn
-            for _, obj in ipairs(ct:GetDescendants()) do
-                if (obj:IsA("TextButton") or obj:IsA("ImageButton"))
-                and (string.find(string.lower(obj.Name),string.lower(JoinTeam))
-                  or (obj.Parent and string.find(string.lower(obj.Parent.Name),string.lower(JoinTeam))))
-                then btn = obj; break end
-            end
-            if btn then
-                if getconnections then
-                    for _, conn in ipairs(getconnections(btn.Activated)) do pcall(conn.Function) end
+            local sound = Instance.new("Sound")
+            sound.SoundId = soundId
+            sound.Volume = 0.4
+            sound.Parent = SoundService
+            sound:Play()
+            Debris:AddItem(sound, 1)
+        end)
+    end
+
+    local clickSound = "rbxassetid://6042053626"
+
+    -- Auto Load Saved Configuration first so initial GUI draws with loaded settings
+    loadConfig()
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "UltimateESP_MobileUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    MobileUIObj.screenGui = screenGui
+
+    -- Main Settings Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainSettingsFrame"
+    mainFrame.Size = UDim2.new(0, 270, 0, 360)
+    mainFrame.Position = UDim2.new(0.5, -135, 0.5, -180)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+    mainFrame.BackgroundTransparency = 0.2
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 12)
+    mainCorner.Parent = mainFrame
+
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Thickness = 1.5
+    mainStroke.Color = Color3.fromRGB(255, 50, 50)
+    mainStroke.Parent = mainFrame
+
+    -- Title Bar / Drag Handle
+    local titleBar = Instance.new("TextLabel")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, -30, 0, 36)
+    titleBar.Position = UDim2.new(0, 0, 0, 0)
+    titleBar.BackgroundTransparency = 1
+    titleBar.Text = "ARRANCAR"
+    titleBar.TextColor3 = Color3.fromRGB(255, 50, 50)
+    titleBar.TextSize = 14
+    titleBar.Font = Enum.Font.GothamBold
+    titleBar.Parent = mainFrame
+
+    -- Close button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseButton"
+    closeBtn.Size = UDim2.new(0, 24, 0, 24)
+    closeBtn.Position = UDim2.new(1, -30, 0, 6)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 14
+    closeBtn.Parent = mainFrame
+
+    makeDraggable(mainFrame, titleBar)
+
+    -- Tab Container Frame
+    local tabContainer = Instance.new("Frame")
+    tabContainer.Name = "TabContainer"
+    tabContainer.Size = UDim2.new(1, 0, 0, 30)
+    tabContainer.Position = UDim2.new(0, 0, 0, 36)
+    tabContainer.BackgroundTransparency = 1
+    tabContainer.Parent = mainFrame
+
+    -- Create three ScrollFrames for the tabs
+    local scrollESP = Instance.new("ScrollingFrame")
+    local scrollAIM = Instance.new("ScrollingFrame")
+    local scrollKHAC = Instance.new("ScrollingFrame")
+
+    local function setupScroll(sf)
+        sf.Size = UDim2.new(1, 0, 1, -66)
+        sf.Position = UDim2.new(0, 0, 0, 66)
+        sf.BackgroundTransparency = 1
+        sf.BorderSizePixel = 0
+        sf.ScrollBarThickness = 3
+        sf.ScrollBarImageColor3 = Color3.fromRGB(255, 50, 50)
+        sf.CanvasSize = UDim2.new(0, 0, 0, 320)
+        sf.Visible = false
+        sf.Parent = mainFrame
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.Padding = UDim.new(0, 2)
+        listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        listLayout.Parent = sf
+    end
+
+    setupScroll(scrollESP)
+    setupScroll(scrollAIM)
+    setupScroll(scrollKHAC)
+
+    -- Default visible tab
+    scrollESP.Visible = true
+
+    -- Tab buttons
+    local tabButtons = {}
+    local function createTabButton(name, text, index, scrollFrame)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(0.33, -6, 1, -4)
+        btn.Position = UDim2.new(0.33 * (index - 1), 3, 0, 2)
+        btn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.Parent = tabContainer
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = btn
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.fromRGB(50, 50, 60)
+        stroke.Parent = btn
+
+        tabButtons[index] = {btn = btn, stroke = stroke, sf = scrollFrame}
+
+        local conn = btn.MouseButton1Click:Connect(function()
+            playSound(clickSound)
+            for i, tab in ipairs(tabButtons) do
+                if i == index then
+                    tab.btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    tab.stroke.Color = Color3.fromRGB(255, 50, 50)
+                    tab.sf.Visible = true
                 else
-                    local vim = game:GetService("VirtualInputManager")
-                    local pos = btn.AbsolutePosition + btn.AbsoluteSize / 2
-                    vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-                    task.wait(0.05)
-                    vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                    tab.btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+                    tab.stroke.Color = Color3.fromRGB(50, 50, 60)
+                    tab.sf.Visible = false
                 end
             end
         end)
-    end
-    local last = 0
-    while not hasTeam() and getgenv().NemoRunning do
-        if tick() - last >= 0.5 then trySelect(); last = tick() end
-        task.wait()
-    end
-end
-
--- === SERVER HOP ===
-local _hopFailCount = 0
-local function HopServer()
-    StatusLabel.Text = "Status: Hopping server..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
-    VisitedServers[game.JobId] = true
-
-    local function fetchServers(cursor)
-        local url = "https://games.roblox.com/v1/games/"..PlaceId.."/servers/Public?sortOrder=Asc&limit=100"
-        if cursor and cursor ~= "" then url = url .. "&cursor=" .. cursor end
-        local ok, res = pcall(function() return HttpService:JSONDecode(game:HttpGet(url)) end)
-        if ok and res and res.data then return res.data, res.nextPageCursor end
-        return nil, nil
-    end
-    local function findBest(servers)
-        for _, s in ipairs(servers) do
-            local playing = s.playing or 0
-            local maxP    = s.maxPlayers or 0
-            if s.id ~= game.JobId and not VisitedServers[s.id]
-            and playing > 0 and (maxP - playing) >= 1 then
-                return s
-            end
-        end
-        return nil
+        table.insert(uiConnections, conn)
     end
 
-    local allServers = {}
-    local cursor = ""
-    for _ = 1, 3 do
-        local page, nxt = fetchServers(cursor)
-        if not page then break end
-        for _, s in ipairs(page) do table.insert(allServers, s) end
-        if not nxt or nxt == "" then break end
-        cursor = nxt
-    end
+    createTabButton("TabESP", "ESP", 1, scrollESP)
+    createTabButton("TabAIM", "AIMBOT", 2, scrollAIM)
+    createTabButton("TabKHAC", "OTHER", 3, scrollKHAC)
 
-    local best = findBest(allServers)
-    if not best then
-        _hopFailCount = _hopFailCount + 1
-        if _hopFailCount >= 2 then
-            _hopFailCount = 0
-            VisitedServers = { [game.JobId] = true }
-            best = findBest(allServers)
-        end
-    else
-        _hopFailCount = 0
-    end
+    -- Style the first tab as active by default
+    tabButtons[1].btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabButtons[1].stroke.Color = Color3.fromRGB(255, 50, 50)
 
-    if best then
-        VisitedServers[best.id] = true
-        StatusLabel.Text = string.format("Status: Hopping → %d/%d players", best.playing or 0, best.maxPlayers or 0)
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        TeleportService:TeleportToPlaceInstance(PlaceId, best.id, LocalPlayer)
-    else
-        local waitTime = math.min(5 * _hopFailCount, 30)
-        StatusLabel.Text = "Status: No server found, retrying in " .. waitTime .. "s..."
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        task.wait(math.max(waitTime, 5))
-    end
-end
+    -- Helper to build animated Toggle Widgets
+    local function createToggle(scrollFrame, labelText, configKey, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 34)
+        row.BackgroundTransparency = 1
+        row.Parent = scrollFrame
 
--- === BOSS FOLLOW LOOP ===
-task.spawn(function()
-    while getgenv().NemoRunning do
-        task.wait(0.1)
-        if not _G.IsAttackingBoss then continue end
-        pcall(function()
-            local boss = workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard")
-            if not boss then return end
-            local bossHRP = boss:FindFirstChild("HumanoidRootPart")
-            if not bossHRP then return end
-            local char = LocalPlayer.Character
-            local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            hrp.CFrame = bossHRP.CFrame * Pos
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.65, 0, 1, 0)
+        label.Position = UDim2.new(0, 15, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = labelText
+        label.TextColor3 = Color3.fromRGB(200, 200, 200)
+        label.TextSize = 12
+        label.Font = Enum.Font.GothamMedium
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = row
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 40, 0, 20)
+        btn.Position = UDim2.new(1, -55, 0.5, -10)
+        btn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(127, 140, 141)
+        btn.Text = ""
+        btn.Parent = row
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0.5, 0)
+        btnCorner.Parent = btn
+
+        local circle = Instance.new("Frame")
+        circle.Size = UDim2.new(0, 14, 0, 14)
+        circle.Position = Config[configKey] and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+        circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        circle.BorderSizePixel = 0
+        circle.Parent = btn
+
+        local circleCorner = Instance.new("UICorner")
+        circleCorner.CornerRadius = UDim.new(0.5, 0)
+        circleCorner.Parent = circle
+
+        local conn = btn.MouseButton1Click:Connect(function()
+            playSound(clickSound)
+            Config[configKey] = not Config[configKey]
+            local enabled = Config[configKey]
+            local targetPos = enabled and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+            local targetColor = enabled and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(127, 140, 141)
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
+            TweenService:Create(circle, TweenInfo.new(0.2), {Position = targetPos}):Play()
+            saveConfig()
+            if callback then callback(enabled) end
         end)
+        table.insert(uiConnections, conn)
     end
-end)
 
--- === FIGHT BOSS ===
-local function fightBoss(boss)
-    if not boss or not boss.Parent then return end
-    _G.IsAttackingBoss = true
-    StatusLabel.Text = "Darkbeard: Fighting..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+    -- Helper to build animated Cycle Button Widgets
+    local function createCycleButton(scrollFrame, labelText, configKey, valuesList)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 34)
+        row.BackgroundTransparency = 1
+        row.Parent = scrollFrame
 
-    local startTime = tick()
-    repeat
-        RunService.Heartbeat:Wait()
-        if tick() - startTime > 300 then break end
-        if not getgenv().NemoRunning then break end
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.5, 0, 1, 0)
+        label.Position = UDim2.new(0, 15, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = labelText
+        label.TextColor3 = Color3.fromRGB(200, 200, 200)
+        label.TextSize = 12
+        label.Font = Enum.Font.GothamMedium
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = row
 
-        local char = LocalPlayer.Character
-        local hum  = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 100, 0, 24)
+        btn.Position = UDim2.new(1, -115, 0.5, -12)
+        btn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+        btn.Text = tostring(Config[configKey])
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.Parent = row
 
-        if not hum or hum.Health <= 0 or not hrp then
-            _G.IsAttackingBoss = false
-            StatusLabel.Text = "Darkbeard: Dead, waiting respawn..."
-            StatusLabel.TextColor3 = Color3.fromRGB(200, 100, 100)
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 6)
+        btnCorner.Parent = btn
 
-            local rt = tick()
-            repeat
-                task.wait(0.5)
-                char = LocalPlayer.Character
-                hum  = char and char:FindFirstChildOfClass("Humanoid")
-                hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            until (hum and hum.Health > 0 and hrp) or (tick() - rt > 10)
+        local btnStroke = Instance.new("UIStroke")
+        btnStroke.Thickness = 1
+        btnStroke.Color = Color3.fromRGB(50, 50, 60)
+        btnStroke.Parent = btn
 
-            if not hum or hum.Health <= 0 or not hrp then continue end
+        local conn = btn.MouseButton1Click:Connect(function()
+            playSound(clickSound)
+            local currentVal = Config[configKey]
+            local currentIndex = table.find(valuesList, currentVal) or 1
+            local nextIndex = currentIndex % #valuesList + 1
+            local nextVal = valuesList[nextIndex]
+            Config[configKey] = nextVal
+            btn.Text = tostring(nextVal)
+            saveConfig()
+        end)
+        table.insert(uiConnections, conn)
+    end
 
-            local bossNow = workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard")
-            if not bossNow then break end
+    -- Helper to build animated Slider Widgets
+    local function createSlider(scrollFrame, labelText, configKey, minVal, maxVal, step, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 38)
+        row.BackgroundTransparency = 1
+        row.Parent = scrollFrame
 
-            StatusLabel.Text = "Darkbeard: Returning to spawn point..."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-            TweenPlayer(DARKBEARD_SPAWN_POS, true)
-            task.wait(0.5)
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.5, 0, 1, 0)
+        label.Position = UDim2.new(0, 15, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = labelText .. ": " .. tostring(Config[configKey])
+        label.TextColor3 = Color3.fromRGB(200, 200, 200)
+        label.TextSize = 12
+        label.Font = Enum.Font.GothamMedium
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = row
 
-            bossNow = workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard")
-            if not bossNow then break end
+        local sliderBg = Instance.new("TextButton")
+        sliderBg.Size = UDim2.new(0, 100, 0, 8)
+        sliderBg.Position = UDim2.new(1, -115, 0.5, -4)
+        sliderBg.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        sliderBg.Text = ""
+        sliderBg.Parent = row
 
-            local bossHRP = bossNow:FindFirstChild("HumanoidRootPart")
-            if bossHRP then
-                TweenPlayer(bossHRP.CFrame * Pos, true)
+        local sliderCorner = Instance.new("UICorner")
+        sliderCorner.CornerRadius = UDim.new(0.5, 0)
+        sliderCorner.Parent = sliderBg
+
+        local sliderFill = Instance.new("Frame")
+        sliderFill.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        sliderFill.BorderSizePixel = 0
+        sliderFill.Parent = sliderBg
+
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0.5, 0)
+        fillCorner.Parent = sliderFill
+
+        local function updateSlider(input)
+            local absoluteSize = sliderBg.AbsoluteSize
+            local absolutePosition = sliderBg.AbsolutePosition
+            local relX = math.clamp((input.Position.X - absolutePosition.X) / absoluteSize.X, 0, 1)
+            local value = minVal + (maxVal - minVal) * relX
+            if step then
+                value = math.round(value / step) * step
             end
-
-            _G.IsAttackingBoss = true
-            StatusLabel.Text = "Darkbeard: Fighting..."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+            Config[configKey] = value
+            label.Text = labelText .. ": " .. tostring(value)
+            sliderFill.Size = UDim2.new(relX, 0, 1, 0)
+            saveConfig()
+            if callback then callback(value) end
         end
 
-    until not (workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard"))
+        -- Initialize visual position
+        local initialRel = math.clamp((Config[configKey] - minVal) / (maxVal - minVal), 0, 1)
+        sliderFill.Size = UDim2.new(initialRel, 0, 1, 0)
 
-    _G.IsAttackingBoss = false
-    StatusLabel.Text = "Darkbeard: Done"
-    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-end
-
--- === AUTO DARKBEARD FLOW ===
-local _darkbeardRunning = false
-
-local function runDarkbeard()
-    if _darkbeardRunning then return end
-    _darkbeardRunning = true
-
-    StatusLabel.Text = "Darkbeard: Heading to spawn point..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-    TweenPlayer(DARKBEARD_SPAWN_POS, true)
-    task.wait(0.5)
-
-    StatusLabel.Text = "Darkbeard: Simulating movement..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 0)
-    pcall(function()
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            local dirs = {
-                Vector3.new(1,0,0), Vector3.new(-1,0,0),
-                Vector3.new(0,0,1), Vector3.new(0,0,-1),
-            }
-            for _, dir in ipairs(dirs) do
-                hum:Move(dir, false)
-                task.wait(0.3)
+        local sliding = false
+        local conn1 = sliderBg.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sliding = true
+                updateSlider(input)
             end
-            hum:Move(Vector3.zero, false)
-        end
+        end)
+        table.insert(uiConnections, conn1)
+
+        local conn2 = UserInputService.InputChanged:Connect(function(input)
+            if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateSlider(input)
+            end
+        end)
+        table.insert(uiConnections, conn2)
+
+        local conn3 = UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sliding = false
+            end
+        end)
+        table.insert(uiConnections, conn3)
+    end
+
+    -- TAB 1: ESP
+    createToggle(scrollESP, "Bat/Tat ESP", "Enabled", function(val)
+        if not val then restoreHitboxes() end
     end)
-    task.wait(0.5)
+    createToggle(scrollESP, "Khung Bounding Goc", "CornerBox")
+    createToggle(scrollESP, "Duong Chi Huong", "Tracer")
+    createToggle(scrollESP, "Chams Wallhack", "Chams")
+    createToggle(scrollESP, "Hien Ten", "ShowName")
+    createToggle(scrollESP, "Hien Khoang Cach", "ShowDist")
+    createToggle(scrollESP, "Thanh Mau", "HealthBar")
+    createToggle(scrollESP, "Ban Do Thu Nho", "TopDown")
 
-    StatusLabel.Text = "Darkbeard: Using Fist of Darkness..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 80, 0)
-    pcall(function()
-        -- Ưu tiên dùng item đang cầm trên tay nếu đúng tên
-        local char = LocalPlayer.Character
-        local currentTool = char and char:FindFirstChildOfClass("Tool")
-        if not (currentTool and currentTool.Name == "Fist of Darkness") then
-            local item = GetBP("Fist of Darkness")
-            if item then
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then hum:EquipTool(item) end
-                task.wait(0.3)
-            end
-        end
-        if CommF_ then
-            CommF_:InvokeServer("UseItem", "Fist of Darkness")
-        end
+    -- TAB 2: AIMBOT
+    createToggle(scrollAIM, "Bat Aimbot", "Aimbot")
+    createToggle(scrollAIM, "Bat Silent Aim", "SilentAim")
+    createToggle(scrollAIM, "Kiem Tra Tuong", "WallCheck")
+    createToggle(scrollAIM, "Vong FOV Aimbot", "AimbotFOV")
+    createToggle(scrollAIM, "Mo Rong Hitbox", "HitboxExpand", function(val)
+        if not val then restoreHitboxes() end
+    end)
+    createCycleButton(scrollAIM, "Kieu Silent Aim", "SilentAimMethod", {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList", "Mouse.Hit/Target"})
+    createCycleButton(scrollAIM, "Ty Le Trung (%)", "SilentAimHitChance", {100, 80, 60, 40, 20})
+    createSlider(scrollAIM, "Ban Kinh FOV", "AimbotFOVRadius", 10, 400, 5)
+
+    -- TAB 3: OTHER (KHAC)
+    createToggle(scrollKHAC, "Kiem Tra Dong Doi", "TeamCheck")
+    createToggle(scrollKHAC, "Chay Cau Vong (RGB)", "Rainbow")
+
+    -- Add custom Action Buttons in Tab 3 (Other)
+    local function createActionButton(text, color, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 38)
+        row.BackgroundTransparency = 1
+        row.Parent = scrollKHAC
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.9, 0, 0, 28)
+        btn.Position = UDim2.new(0.05, 0, 0.5, -14)
+        btn.BackgroundColor3 = color
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 12
+        btn.Parent = row
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = btn
+
+        local conn = btn.MouseButton1Click:Connect(function()
+            playSound(clickSound)
+            if callback then callback() end
+        end)
+        table.insert(uiConnections, conn)
+    end
+
+    createActionButton("Luu Cau Hinh Hien Tai", Color3.fromRGB(52, 152, 219), function()
+        saveConfig()
+        print("[ESP/Aimbot] Cau hinh da duoc luu.")
     end)
 
-    StatusLabel.Text = "Darkbeard: Waiting for boss to spawn..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
-    local t = tick()
-    repeat task.wait(0.5) until
-        (workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard"))
-        or (tick() - t > 30)
-        or not getgenv().NemoRunning
+    createActionButton("Huy Script (Unload)", Color3.fromRGB(231, 76, 60), function()
+        pcall(function() ESP.Unload() end)
+    end)
 
-    local boss = workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Darkbeard")
+    -- Floating Toggle Menu Button
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "UltimateESP_ToggleMenu"
+    toggleBtn.Size = UDim2.new(0, 90, 0, 30)
+    toggleBtn.Position = UDim2.new(0.05, 0, 0.1, 0)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+    toggleBtn.BackgroundTransparency = 0.3
+    toggleBtn.Text = "ARRANCAR"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = 12
+    toggleBtn.Parent = screenGui
 
-    if boss then
-        fightBoss(boss)
-        task.wait(1)
-        HopServer()
-    else
-        StatusLabel.Text = "Darkbeard: Boss did not spawn (timeout)"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        task.wait(3)
-    end
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 6)
+    toggleCorner.Parent = toggleBtn
 
-    _darkbeardRunning = false
-end
+    local toggleStroke = Instance.new("UIStroke")
+    toggleStroke.Thickness = 1.5
+    toggleStroke.Color = Color3.fromRGB(255, 50, 50)
+    toggleStroke.Parent = toggleBtn
 
--- === CHEST SORTING ===
-local function getChestsSorted()
-    if FirstRun then
-        FirstRun = false
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Part") and obj.Name:find("Chest") then addChest(obj) end
-        end
-        ChestDirty = true
-    end
-    if ChestDirty then
-        ChestDirty = false
-        local cleaned = {}
-        for _, c in ipairs(ChestList) do
-            if c and c.Parent and ChestSet[c] then table.insert(cleaned, c) end
-        end
-        ChestList = cleaned
-        ChestSet = {}
-        for _, c in ipairs(ChestList) do ChestSet[c] = true end
-    end
+    makeDraggable(toggleBtn)
 
-    local now = tick()
-    local char = LocalPlayer.Character
-    local RP   = char and char:FindFirstChild("HumanoidRootPart")
-    local out  = {}
-    for _, c in ipairs(ChestList) do
-        if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
-            local lt = IgnoredChests[c]
-            if not lt or (now - lt > CHEST_IGNORE_TIME) then
-                table.insert(out, c)
-            end
-        end
-    end
-    if RP then
-        local rx,ry,rz = RP.Position.X, RP.Position.Y, RP.Position.Z
-        table.sort(out, function(A,B)
-            local ax,ay,az = A.Position.X-rx, A.Position.Y-ry, A.Position.Z-rz
-            local bx,by,bz = B.Position.X-rx, B.Position.Y-ry, B.Position.Z-rz
-            return ax*ax+ay*ay+az*az < bx*bx+by*by+bz*bz
-        end)
-    end
-    return out
-end
+    local connToggle = toggleBtn.MouseButton1Click:Connect(function()
+        playSound(clickSound)
+        mainFrame.Visible = not mainFrame.Visible
+        local targetColor = mainFrame.Visible and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(255, 50, 50)
+        TweenService:Create(toggleStroke, TweenInfo.new(0.2), {Color = targetColor}):Play()
+    end)
+    table.insert(uiConnections, connToggle)
 
--- === CHEST INTERACTION ===
-local function jumpIntoChest(RP, Chest, maxA)
-    maxA = maxA or 4
-    for i = 1, maxA do
-        if not Chest or not Chest.Parent or not getgenv().NemoRunning then return end
-        local char = LocalPlayer.Character
-        local hum  = char and char:FindFirstChildOfClass("Humanoid")
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if not hum or hum.Health <= 0 or not root then return end
-        local angle = (i-1) * (math.pi*2/maxA) + math.random()*0.3
-        local ad = hrand(1.5, 2.5)
-        root.CFrame = Chest.CFrame * CFrame.new(math.cos(angle)*ad, 1.5, math.sin(angle)*ad)
-        RunService.Heartbeat:Wait()
-        pcall(function() root.AssemblyLinearVelocity = (Chest.Position - root.Position).Unit * 28 end)
-        task.wait(0.06)
-        root.CFrame = Chest.CFrame * CFrame.new(0, 0.3, 0)
-        pcall(function()
-            if firetouchinterest then
-                firetouchinterest(root, Chest, 0); task.wait(hrand(0.06,0.10)); firetouchinterest(root, Chest, 1)
+    local connClose = closeBtn.MouseButton1Click:Connect(function()
+        playSound(clickSound)
+        mainFrame.Visible = false
+        TweenService:Create(toggleStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(255, 50, 50)}):Play()
+    end)
+    table.insert(uiConnections, connClose)
+
+    -- Virtual Aimbot Touch Button (Mobile Lock)
+    if UserInputService.TouchEnabled then
+        local aimBtn = Instance.new("TextButton")
+        aimBtn.Name = "UltimateESP_AimbotBtn"
+        aimBtn.Size = UDim2.new(0, 60, 0, 60)
+        aimBtn.Position = UDim2.new(0.85, -30, 0.7, -30)
+        aimBtn.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+        aimBtn.BackgroundTransparency = 0.3
+        aimBtn.Text = "KHOA TARGET"
+        aimBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
+        aimBtn.Font = Enum.Font.GothamBold
+        aimBtn.TextSize = 11
+        aimBtn.Parent = screenGui
+
+        local aimCorner = Instance.new("UICorner")
+        aimCorner.CornerRadius = UDim.new(0.5, 0)
+        aimCorner.Parent = aimBtn
+
+        local aimStroke = Instance.new("UIStroke")
+        aimStroke.Thickness = 2
+        aimStroke.Color = Color3.fromRGB(255, 50, 50)
+        aimStroke.Parent = aimBtn
+
+        makeDraggable(aimBtn)
+
+        local connBegan = aimBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isMobileAimbotPressed = true
+                TweenService:Create(aimBtn, TweenInfo.new(0.15), {
+                    Size = UDim2.new(0, 54, 0, 54),
+                    BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                }):Play()
+                TweenService:Create(aimStroke, TweenInfo.new(0.15), {
+                    Color = Color3.fromRGB(46, 204, 113)
+                }):Play()
+                aimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             end
         end)
-        if not Chest or not Chest.Parent then return end
-    end
-end
+        table.insert(uiConnections, connBegan)
 
-local function TouchChest(RP, Chest)
-    if not Chest or not Chest.Parent then return end
-    if InstantTP then
-        RP.CFrame = jitterCF(Chest.CFrame * CFrame.new(0, 0.5, 0))
-        local fired = false
-        pcall(function()
-            if firetouchinterest then
-                firetouchinterest(RP, Chest, 0)
-                task.wait(hrand(0.05, 0.08))
-                firetouchinterest(RP, Chest, 1)
-                fired = true
+        local connEnded = aimBtn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isMobileAimbotPressed = false
+                TweenService:Create(aimBtn, TweenInfo.new(0.15), {
+                    Size = UDim2.new(0, 60, 0, 60),
+                    BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+                }):Play()
+                TweenService:Create(aimStroke, TweenInfo.new(0.15), {
+                    Color = Color3.fromRGB(255, 50, 50)
+                }):Play()
+                aimBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
             end
         end)
-        if not fired then jumpIntoChest(RP, Chest, 2) end
-    else
-        Teleport(Chest.CFrame)
-        pcall(function()
-            if firetouchinterest then
-                firetouchinterest(RP, Chest, 0); task.wait(0.05); firetouchinterest(RP, Chest, 1)
+        table.insert(uiConnections, connEnded)
+    end
+
+    screenGui.Parent = getGuiParent()
+end
+
+-- ===================== UNIVERSAL SILENT AIM HOOK =====================
+local ExpectedArguments = {
+    FindPartOnRayWithIgnoreList = {
+        ArgCountRequired = 3,
+        Args = {
+            "Instance", "Ray", "table", "boolean", "boolean"
+        }
+    },
+    FindPartOnRayWithWhitelist = {
+        ArgCountRequired = 3,
+        Args = {
+            "Instance", "Ray", "table", "boolean"
+        }
+    },
+    FindPartOnRay = {
+        ArgCountRequired = 2,
+        Args = {
+            "Instance", "Ray", "Instance", "boolean", "boolean"
+        }
+    },
+    Raycast = {
+        ArgCountRequired = 3,
+        Args = {
+            "Instance", "Vector3", "Vector3", "RaycastParams"
+        }
+    }
+}
+
+local function CalculateChance(Percentage)
+    Percentage = math.floor(Percentage)
+    local chance = math.floor(Random.new().NextNumber(Random.new(), 0, 1) * 100) / 100
+    return chance <= Percentage / 100
+end
+
+local function ValidateArguments(Args, RayMethod)
+    local Matches = 0
+    if #Args < RayMethod.ArgCountRequired then
+        return false
+    end
+    for Pos, Argument in next, Args do
+        if typeof(Argument) == RayMethod.Args[Pos] then
+            Matches = Matches + 1
+        end
+    end
+    return Matches >= RayMethod.ArgCountRequired
+end
+
+local function getDirection(Origin, Position)
+    return (Position - Origin).Unit * 1000
+end
+
+local function hookSilentAim()
+    if not getrawmetatable or not newcclosure then return end
+    local success, err = pcall(function()
+        local lp = Players.LocalPlayer
+        if not lp then return end
+        local mouse = lp:GetMouse()
+        local mt = getrawmetatable(game)
+        local oldIndex = mt.__index
+        local oldNamecall
+        
+        local isWritable = setreadonly or make_writeable
+        if not isWritable then return end
+        
+        if setreadonly then setreadonly(mt, false) else make_writeable(mt) end
+
+        mt.__index = newcclosure(function(self, Index)
+            if Config.Enabled and Config.SilentAim and Config.SilentAimMethod == "Mouse.Hit/Target" and currentTarget and self == mouse and not checkcaller() then
+                local chance = CalculateChance(Config.SilentAimHitChance)
+                if chance then
+                    if Index == "Target" or Index == "target" then 
+                        return currentTarget
+                    elseif Index == "Hit" or Index == "hit" then 
+                        local velocity = currentTarget.AssemblyLinearVelocity or currentTarget.Velocity or Vector3.new(0, 0, 0)
+                        return ((Config.AimbotPrediction > 0 and (currentTarget.CFrame + (velocity * Config.AimbotPrediction))) or currentTarget.CFrame)
+                    elseif Index == "X" or Index == "x" then 
+                        return self.X 
+                    elseif Index == "Y" or Index == "y" then 
+                        return self.Y 
+                    elseif Index == "UnitRay" then 
+                        local origin = self.Origin.Position
+                        local targetPos = currentTarget.Position
+                        if Config.AimbotPrediction > 0 then
+                            local velocity = currentTarget.AssemblyLinearVelocity or currentTarget.Velocity or Vector3.new(0, 0, 0)
+                            targetPos = targetPos + (velocity * Config.AimbotPrediction)
+                        end
+                        return Ray.new(origin, (targetPos - origin).Unit)
+                    end
+                end
             end
+            return oldIndex(self, Index)
         end)
-        RunService.Heartbeat:Wait()
+
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(...)
+            local Method = getnamecallmethod()
+            local Arguments = {...}
+            local self = Arguments[1]
+            
+            if Config.Enabled and Config.SilentAim and self == workspace and not checkcaller() and currentTarget then
+                if Method == "FindPartOnRayWithIgnoreList" and Config.SilentAimMethod == Method then
+                    if ValidateArguments(Arguments, ExpectedArguments.FindPartOnRayWithIgnoreList) then
+                        local chance = CalculateChance(Config.SilentAimHitChance)
+                        if chance then
+                            local A_Ray = Arguments[2]
+                            local Origin = A_Ray.Origin
+                            local Direction = getDirection(Origin, currentTarget.Position)
+                            Arguments[2] = Ray.new(Origin, Direction)
+                            return oldNamecall(unpack(Arguments))
+                        end
+                    end
+                elseif Method == "FindPartOnRayWithWhitelist" and Config.SilentAimMethod == Method then
+                    if ValidateArguments(Arguments, ExpectedArguments.FindPartOnRayWithWhitelist) then
+                        local chance = CalculateChance(Config.SilentAimHitChance)
+                        if chance then
+                            local A_Ray = Arguments[2]
+                            local Origin = A_Ray.Origin
+                            local Direction = getDirection(Origin, currentTarget.Position)
+                            Arguments[2] = Ray.new(Origin, Direction)
+                            return oldNamecall(unpack(Arguments))
+                        end
+                    end
+                elseif (Method == "FindPartOnRay" or Method == "findPartOnRay") and Config.SilentAimMethod:lower() == Method:lower() then
+                    if ValidateArguments(Arguments, ExpectedArguments.FindPartOnRay) then
+                        local chance = CalculateChance(Config.SilentAimHitChance)
+                        if chance then
+                            local A_Ray = Arguments[2]
+                            local Origin = A_Ray.Origin
+                            local Direction = getDirection(Origin, currentTarget.Position)
+                            Arguments[2] = Ray.new(Origin, Direction)
+                            return oldNamecall(unpack(Arguments))
+                        end
+                    end
+                elseif Method == "Raycast" and Config.SilentAimMethod == Method then
+                    if ValidateArguments(Arguments, ExpectedArguments.Raycast) then
+                        local chance = CalculateChance(Config.SilentAimHitChance)
+                        if chance then
+                            local A_Origin = Arguments[2]
+                            Arguments[3] = getDirection(A_Origin, currentTarget.Position)
+                            return oldNamecall(unpack(Arguments))
+                        end
+                    end
+                end
+            end
+            return oldNamecall(...)
+        end))
+
+        if setreadonly then setreadonly(mt, true) else make_readonly(mt) end
+    end)
+    if not success then
+        warn("[Silent Aim Warning] Metatable hooking is not supported: " .. tostring(err))
     end
 end
 
--- === FRUIT COLLECTION ===
-local function GrabFruit(fruit)
-    if not fruit or not fruit.Parent then return end
-    local handle = fruit:FindFirstChild("Handle")
-    if not handle then return end
-    local fc = LocalPlayer.Character
-    local fr = fc and fc:FindFirstChild("HumanoidRootPart")
-    if not fr then return end
-    local dist = (fr.Position - handle.Position).Magnitude
-    if dist > 800 then return end
-    fr.CFrame = jitterCF(handle.CFrame * CFrame.new(0, 0.5, 0), 0.3)
-    task.wait(0.05)
-    fc = LocalPlayer.Character
-    fr = fc and fc:FindFirstChild("HumanoidRootPart")
-    if not fr then return end
-    for _ = 1, 2 do
-        if not fruit or not fruit.Parent then break end
-        pcall(function()
-            if firetouchinterest then
-                firetouchinterest(fr, handle, 0)
-                task.wait(0.05)
-                firetouchinterest(fr, handle, 1)
-            end
-        end)
-        task.wait(hrand(0.08, 0.12))
-    end
-    StoreFruit()
+-- ===================== INITIALIZE =====================
+initMinimap()
+pcall(createMobileUI)
+hookSilentAim()
+
+FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Filled  = false
+FOVCircle.ZIndex  = 3
+
+for _, p in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(p)
 end
 
--- === MAIN LOOP ===
-local function main()
-    AutoSelectTeam()
-    while getgenv().NemoRunning do
-        local char     = LocalPlayer.Character
-        local RootPart = char and char:FindFirstChild("HumanoidRootPart")
-        if not RootPart then task.wait(1); continue end
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
 
-        -- [1] Fist of Darkness → Darkbeard flow
-        if AutoDarkbeard and GetBP("Fist of Darkness") then
-            runDarkbeard()
-            continue
+RunService:BindToRenderStep("UltimateESP_RenderLoop", Enum.RenderPriority.Camera.Value + 1, onRenderStep)
+
+-- ===================== EXPORT GLOBAL API =====================
+local ESP = {}
+
+function ESP.Unload()
+    pcall(function() RunService:UnbindFromRenderStep("UltimateESP_RenderLoop") end)
+    for player in pairs(ESPObjects) do removeESP(player) end
+    restoreHitboxes()
+    if MapUI.bg      then MapUI.bg:Remove()      end
+    if MapUI.border  then MapUI.border:Remove()  end
+    if MapUI.selfDot then MapUI.selfDot:Remove() end
+    if FOVCircle     then FOVCircle:Remove()     end
+    
+    -- Cleanup Mobile GUI
+    for _, conn in ipairs(uiConnections) do
+        if conn and conn.Disconnect then
+            pcall(function() conn:Disconnect() end)
         end
-
-        -- [2] Fruit priority
-        if CollectFruit then
-            local fruits = GetDroppedFruits()
-            if #fruits > 0 then
-                _G.IsAttackingBoss = false
-                StatusLabel.Text = "Status: Fruit detected! Collecting..."
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-                GrabFruit(fruits[1])
-                continue
-            end
-        end
-
-        _G.IsAttackingBoss = false
-
-        -- [3] Farm chests
-        local Chests      = getChestsSorted()
-        local totalChests = #Chests
-
-        if totalChests == 0 then
-            StatusLabel.Text = "Status: No chests found, hopping..."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
-            HopServer()
-            continue
-        end
-
-        local mode = InstantTP and "Instant" or "Smooth"
-        StatusLabel.Text = string.format("Status: Auto Chest [%s] | Remaining: %d", mode, totalChests)
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-
-        for _, Chest in ipairs(Chests) do
-            if not getgenv().NemoRunning then break end
-            if AutoDarkbeard and GetBP("Fist of Darkness") then break end
-            char     = LocalPlayer.Character
-            RootPart = char and char:FindFirstChild("HumanoidRootPart")
-            if not RootPart then break end
-            if Chest and Chest.Parent and Chest:FindFirstChild("TouchInterest") then
-                pcall(TouchChest, RootPart, Chest)
-                IgnoredChests[Chest] = tick()
-                task.wait(hrand(0.05, 0.08))
-                if CollectFruit and #GetDroppedFruits() > 0 then break end
-            end
-        end
-        task.wait()
     end
+    uiConnections = {}
+    if MobileUIObj.screenGui then
+        pcall(function() MobileUIObj.screenGui:Destroy() end)
+        MobileUIObj.screenGui = nil
+    end
+    
+    print("[ESP/Aimbot] Fully Unloaded.")
 end
 
-main()
+function ESP.Toggle()
+    Config.Enabled = not Config.Enabled
+    if not Config.Enabled then
+        restoreHitboxes()
+    end
+    print("[ESP/Aimbot] Status changed to: " .. (Config.Enabled and "ON" or "OFF"))
+end
+
+_G.UltimateESP = ESP
+
+print("[ESP/Aimbot] PREMIUM EDITION loaded successfully!")
+print("Use: _G.UltimateESP.Toggle() to Toggle | _G.UltimateESP.Unload() to Unload.")
+
+return ESP
